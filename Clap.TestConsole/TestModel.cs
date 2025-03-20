@@ -21,8 +21,8 @@ public abstract partial class Commands
     [Command(Name = "add")]
     public sealed partial class Add : Commands
     {
-        [Arg]
-        public required string Path { get; init; }
+        
+        public required string[] Paths { get; init; }
     }
 
     [Command]
