@@ -2,18 +2,36 @@ using Clap.Net;
 
 namespace Clap.TestConsole;
 
-[Command(Name = "myapp", Description = "Does cool things")]
-public partial class TestModel
+[Command(Name = "git", Description = "A fictional versioning CLI")]
+public partial class Git
 {
-    [Positional(Index = 0, Description = "Input file")]
-    public required string InputFile { get; init; }
-
-    [Switch(LongName = "verbose", ShortName = 'v', Description = "Enable verbose logging")]
+    [Arg(ShortName = 'v', Description = "Prints verbose output")]
     public bool Verbose { get; init; }
 
-    [Option(LongName = "file", ShortName = 'f', Description = "Config file path")]
-    public string? ConfigFile { get; init; }
+    [Command(Subcommand = true)]
+    public required Commands Command { get; init; }
+}
 
-    [Option(LongName = "number", ShortName = 'n', Description = "Number of times")]
-    public int? NumberOfTimes { get; init; }
+[SubCommand]
+public abstract partial class Commands
+{
+    [Command(Name = "status")]
+    public sealed partial class Status : Commands;
+
+    [Command(Name = "add")]
+    public sealed partial class Add : Commands
+    {
+        [Arg]
+        public required string Path { get; init; }
+    }
+
+    [Command]
+    public sealed partial class Diff : Commands
+    {
+        public required string Base { get; init; }
+        public required string Head { get; init; }
+
+        [Arg(Last = true)] 
+        public required string Path { get; init; }
+    }
 }
