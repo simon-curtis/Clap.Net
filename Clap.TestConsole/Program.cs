@@ -1,4 +1,5 @@
-﻿using Clap.TestConsole;
+﻿using System.Collections.Immutable;
+using Clap.TestConsole;
 
 var app = Git.Parse(args);
 Console.WriteLine($"Verbose: {app.Verbose}");
@@ -6,7 +7,7 @@ Console.WriteLine($"Verbose: {app.Verbose}");
 switch (app.Command)
 {
     case Commands.Add add:
-        Console.WriteLine($"Adding {add.Path}");
+        Console.WriteLine($"Adding {string.Join(", ", add.Paths)}");
         break;
 
     case Commands.Status:
