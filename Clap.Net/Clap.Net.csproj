@@ -5,7 +5,7 @@
         <IncludeBuildOutput>true</IncludeBuildOutput>
         <Nullable>enable</Nullable>
         <ImplicitUsings>true</ImplicitUsings>
-        <LangVersion>Latest</LangVersion>
+        <LangVersion>Preview</LangVersion>
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
         <PackageReadmeFile>readme.md</PackageReadmeFile>
         <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>

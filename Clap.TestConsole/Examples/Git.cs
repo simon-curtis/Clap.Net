@@ -58,7 +58,7 @@ public abstract partial class Commands
         public string? UploadPack { get; init; }
 
         [Arg(LongName = "reference", Description = "Reference another repository")]
-        public string? ReferneceRepository { get; init; }
+        public string? ReferenceRepository { get; init; }
 
         [Arg(LongName = "dissociate", Description = "Borrow the objects from reference repos only to reduce network transfer")]
         public bool Dissociate { get; init; }
