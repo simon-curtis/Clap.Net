@@ -6,12 +6,12 @@ Console.WriteLine($"Verbose: {app.Verbose}");
 
 switch (app.Command)
 {
-    case Commands.Add add:
-        Console.WriteLine($"Adding {string.Join(", ", add.Paths)}");
+    case Commands.StatusCommand:
+        Console.WriteLine("Status");
         break;
 
-    case Commands.Status:
-        Console.WriteLine("Status");
+    case Commands.Add add:
+        Console.WriteLine($"Adding {string.Join(", ", add.Paths)}");
         break;
 
     case Commands.Diff diff:
