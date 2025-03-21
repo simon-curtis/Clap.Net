@@ -402,7 +402,6 @@ public class ClapGenerator : IIncrementalGenerator
                         writer.WriteLine("{");
                         writer.IncreaseIndent();
                         SetPositionalValue(writer, positional);
-                        writer.WriteLine("index++;");
                         writer.WriteLine("positionalIndex++;");
                         writer.WriteLine("break;");
                         writer.DecreaseIndent();
@@ -555,7 +554,10 @@ public class ClapGenerator : IIncrementalGenerator
             return;
         }
 
-        writer.WriteLine($"{argument.VariableName} = {GetArgConversion(argument.MemberType)};");
+        writer.WriteLine($"""
+                         {argument.VariableName} = {GetArgConversion(argument.MemberType)};
+                         index++;
+                         """);
     }
 
     private static void SetNamedArgumentValue(Utf8IndentedWriter writer, NamedArgumentModel argument)
@@ -585,7 +587,10 @@ public class ClapGenerator : IIncrementalGenerator
             return;
         }
 
-        writer.WriteLine($"{argument.VariableName} = {GetArgConversion(argument.MemberType)};");
+        writer.WriteLine($"""
+                         {argument.VariableName} = {GetArgConversion(argument.MemberType)};
+                         index++;
+                         """);
     }
 
     private static void WriteArraySetter(Utf8IndentedWriter writer, string variableName, ITypeSymbol elementType)
