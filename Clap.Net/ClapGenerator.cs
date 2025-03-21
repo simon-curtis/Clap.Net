@@ -263,77 +263,9 @@ public class ClapGenerator : IIncrementalGenerator
 
         writer.IncreaseIndent();
 
-        var commandName = commandModel.Name;
-        var sb = new StringBuilder($"# {commandName}");
-
-        if (!string.IsNullOrEmpty(commandModel.Summary))
-        {
-            sb.AppendLine($" - {commandModel.Summary}");
-        }
-
-        sb.AppendLine();
-
-        if (!string.IsNullOrEmpty(commandModel.Description))
-        {
-            sb.AppendLine(commandModel.Description);
-            sb.AppendLine();
-        }
-
-        sb.Append("Usage: ");
-        sb.Append(commandModel.Name ?? Assembly.GetExecutingAssembly().GetName().Name);
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            sb.Append("[.exe]");
-
-        sb.Append(" [OPTIONS]");
-
-        foreach (var positional in commandModel.Arguments.OfType<PositionalArgumentModel>())
-        {
-            sb.Append($" {positional.Symbol.Name.ToSnakeCase()}");
-        }
-
-        sb.AppendLine();
-        sb.AppendLine();
-
-        var table = new List<string?[]>();
-        foreach (var option in commandModel.Arguments.OfType<NamedArgumentModel>())
-        {
-            var names = option switch
-            {
-                { ShortName: { } shortName, LongName: { } longName } => $"-{shortName}, --{longName}",
-                { ShortName: { } shortName } => $"-{shortName}",
-                { LongName: { } longName } => $"--{longName}",
-                _ => $"{option.Symbol.Name.ToSnakeCase()}"
-            };
-
-            table.Add([names, option.Description]);
-        }
-
-        table.Add(["-h, --help", "Shows this help message"]);
-
-        var maxColumnLength = table.Max(o => o[0]?.Length ?? 0);
-
-        sb.AppendLine("Options:");
-        foreach (var row in table)
-            sb.AppendLine($"  {row[0]?.PadRight(maxColumnLength)}  {row[1]}");
-        sb.AppendLine();
-
-        if (subCommand is { Commands.Length: > 0 })
-        {
-            table.Clear();
-            foreach (var command in subCommand.Commands)
-                table.Add([command.Name, command.Summary]);
-
-            maxColumnLength = table.Max(o => o[0]?.Length ?? 0);
-
-            sb.AppendLine("Commands:");
-            foreach (var row in table)
-                sb.AppendLine($"  {row[0]?.PadRight(maxColumnLength)}  {row[1]}");
-            sb.AppendLine();
-        }
-
         writer.WriteLine($"private const string HelpMessage = \"\"\"");
         writer.IncreaseIndent();
-        writer.WriteLine(sb.ToString());
+        writer.WriteLine(GenerateHelpMessage(commandModel, subCommand));
         writer.WriteLine("\"\"\";");
         writer.DecreaseIndent();
         writer.WriteLine();
@@ -348,7 +280,7 @@ public class ClapGenerator : IIncrementalGenerator
         writer.WriteLine("""
                          if (args.Length > 0 && args[0] is "-h" or "--help") 
                          {
-                             System.Console.WriteLine(HelpMessage);
+                             PrintHelpMessage();
                              System.Environment.Exit(0);
                          }
                          """);
@@ -358,6 +290,7 @@ public class ClapGenerator : IIncrementalGenerator
         {
             writer.WriteLine($"return new {fullName}();");
             writer.DecreaseAndWriteLine("}");
+            WriteHelperMethods(writer);
             writer.DecreaseAndWriteLine("}");
 
             if (commandModel.Symbol.ContainingType is not null)
@@ -481,7 +414,7 @@ public class ClapGenerator : IIncrementalGenerator
         }
 
         writer.WriteLine("""
-                         case var arg when arg.StartsWith('-'):
+                         case var arg:
                              DisplayError($"Unknown argument '{arg}'");
                              break;
                          """);
@@ -550,22 +483,7 @@ public class ClapGenerator : IIncrementalGenerator
         }
 
         writer.DecreaseAndWriteLine("}"); // This closes the Parse method
-
-        writer.WriteLine();
-
-        writer.WriteLine("""
-                         [System.Diagnostics.CodeAnalysis.DoesNotReturn]
-                         public static void DisplayError(string message)
-                         {
-                             System.Console.ForegroundColor = System.ConsoleColor.Red;
-                             System.Console.WriteLine($"{message}\n");
-                             System.Console.ResetColor();
-                             System.Console.WriteLine(HelpMessage);
-                             System.Environment.Exit(0);
-                         }
-                         """);
-        writer.WriteLine();
-
+        WriteHelperMethods(writer);
         writer.DecreaseAndWriteLine("}"); // This closes the Class/Struct body
 
         if (commandModel.Symbol.ContainingType is not null)
@@ -670,10 +588,10 @@ public class ClapGenerator : IIncrementalGenerator
         writer.WriteLine($"{argument.VariableName} = {GetArgConversion(argument.MemberType)};");
     }
 
-    private static void WriteArraySetter(Utf8IndentedWriter writer, string variableName, ITypeSymbol elementType) 
+    private static void WriteArraySetter(Utf8IndentedWriter writer, string variableName, ITypeSymbol elementType)
     {
-            var childType = elementType.ToDisplayString(TypeNameFormat);
-            writer.WriteLine($$"""
+        var childType = elementType.ToDisplayString(TypeNameFormat);
+        writer.WriteLine($$"""
                                var builder = System.Collections.Immutable.ImmutableArray.CreateBuilder<{{childType}}>();
                                while (index < args.Length && !args[index].StartsWith('-')) 
                                {
@@ -706,7 +624,7 @@ public class ClapGenerator : IIncrementalGenerator
             "System.DateTime" => nullable ? $"DateTime.TryParse(args[index], out var v) ? v : null" : $"DateTime.Parse(args[index])",
             "System.TimeSpan" => nullable ? $"TimeSpan.TryParse(args[index], out var v) ? v : null" : $"TimeSpan.Parse(args[index])",
             "System.Guid" => nullable ? $"Guid.TryParse(args[index], out var v) ? v : null" : $"Guid.Parse(args[index])",
-            var other =>  $"Convert.ChangeType(args[index], typeof({(nullable ? $"{other}?" : other)}))"
+            var other => $"Convert.ChangeType(args[index], typeof({(nullable ? $"{other}?" : other)}))"
         };
     }
 
@@ -733,5 +651,98 @@ public class ClapGenerator : IIncrementalGenerator
     {
         var memberType = member.ToDisplayString(TypeNameFormat).TrimEnd('?');
         return subCommandModels.FirstOrDefault(sc => memberType == sc?.Symbol.ToDisplayString(TypeNameFormat).TrimEnd('?'));
+    }
+
+    private static string GenerateHelpMessage(CommandModel commandModel, SubCommandModel? subCommand)
+    {
+        var commandName = commandModel.Name;
+        var sb = new StringBuilder($"# {commandName}");
+
+        if (!string.IsNullOrEmpty(commandModel.Summary))
+        {
+            sb.AppendLine($" - {commandModel.Summary}");
+        }
+
+        sb.AppendLine();
+
+        if (!string.IsNullOrEmpty(commandModel.Description))
+        {
+            sb.AppendLine(commandModel.Description);
+            sb.AppendLine();
+        }
+
+        sb.Append("Usage: {{EXECUTABLE_NAME}}");
+
+        if (commandModel.Arguments.OfType<NamedArgumentModel>().Any())
+            sb.Append(" [OPTIONS]");
+
+        foreach (var positional in commandModel.Arguments.OfType<PositionalArgumentModel>())
+            sb.Append($" {positional.Symbol.Name.ToSnakeCase()}");
+
+        sb.AppendLine();
+        sb.AppendLine();
+
+        var table = new List<string?[]>();
+        foreach (var option in commandModel.Arguments.OfType<NamedArgumentModel>())
+        {
+            var names = option switch
+            {
+                { ShortName: { } shortName, LongName: { } longName } => $"-{shortName}, --{longName}",
+                { ShortName: { } shortName } => $"-{shortName}",
+                { LongName: { } longName } => $"--{longName}",
+                _ => $"{option.Symbol.Name.ToSnakeCase()}"
+            };
+
+            table.Add([names, option.Description]);
+        }
+
+        table.Add(["-h, --help", "Shows this help message"]);
+
+        var maxColumnLength = table.Max(o => o[0]?.Length ?? 0);
+
+        sb.AppendLine("Options:");
+        foreach (var row in table)
+            sb.AppendLine($"  {row[0]?.PadRight(maxColumnLength)}  {row[1]}");
+        sb.AppendLine();
+
+        if (subCommand is { Commands.Length: > 0 })
+        {
+            table.Clear();
+            foreach (var command in subCommand.Commands)
+                table.Add([command.Name, command.Summary]);
+
+            maxColumnLength = table.Max(o => o[0]?.Length ?? 0);
+
+            sb.AppendLine("Commands:");
+            foreach (var row in table)
+                sb.AppendLine($"  {row[0]?.PadRight(maxColumnLength)}  {row[1]}");
+            sb.AppendLine();
+        }
+
+        return sb.ToString();
+    }
+
+    private static void WriteHelperMethods(Utf8IndentedWriter writer) 
+    {
+        writer.WriteLine();
+        writer.WriteLine("""
+                         [System.Diagnostics.CodeAnalysis.DoesNotReturn]
+                         public static void DisplayError(string message)
+                         {
+                             System.Console.ForegroundColor = System.ConsoleColor.Red;
+                             System.Console.WriteLine($"{message}\n");
+                             System.Console.ResetColor();
+                             PrintHelpMessage();
+                             System.Environment.Exit(0);
+                         }
+
+                         private static void PrintHelpMessage() 
+                         {
+                             var executableName = System.IO.Path.GetFileNameWithoutExtension(Environment.GetCommandLineArgs()[0]);
+                             if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+                                 executableName += "[.exe]";
+                             System.Console.WriteLine(HelpMessage.Replace("{{EXECUTABLE_NAME}}", executableName));
+                         }
+                         """);
     }
 }
