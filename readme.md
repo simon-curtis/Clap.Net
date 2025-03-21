@@ -1,4 +1,3 @@
-```markdown
 # Clap.Net
 
 Clap.Net is an attempt to port clap-rs over to .NET, with almost feature-parity, to make source generated parsers for applications.
