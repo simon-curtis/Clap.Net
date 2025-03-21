@@ -1,0 +1,48 @@
+name: Build and Release NuGet Package
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repository
+      - uses: actions/checkout@v3
+
+      # Setup .NET (adjust the version if needed)
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '8.0.x'
+
+      # Restore dependencies explicitly in the Clap.Net subfolder
+      - name: Restore Dependencies
+        working-directory: ./Clap.Net
+        run: dotnet restore
+
+      # Generate version string (0.1.<run_number>-beta)
+      # Note: Adjust versioning logic here if you need a more granular version number
+      - name: Set version number
+        id: version
+        run: echo "version=0.1.${GITHUB_RUN_NUMBER}-beta" >> $GITHUB_OUTPUT
+
+      # Ensure the artifacts folder exists at the root of the repository
+      - name: Create artifacts folder
+        run: mkdir -p artifacts
+
+      # Pack the NuGet package from the Clap.Net subfolder
+      - name: Pack NuGet package
+        working-directory: ./Clap.Net
+        run: dotnet pack -c Release -o ../artifacts -p:Version=${{ steps.version.outputs.version }}
+
+      # Optional: Verify the package file exists and follows the expected naming pattern
+      - name: List generated package files
+        run: ls -l ../artifacts/Clap.Net.*.nupkg
+
+      # Push the NuGet package to NuGet.org using the secret API key scoped to Clap.Net
+      - name: Publish NuGet package
+        run: dotnet nuget push ../artifacts/Clap.Net.*.nupkg -k ${{ secrets.NUGET_CLAP_NET_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
