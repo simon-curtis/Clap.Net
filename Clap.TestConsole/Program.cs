@@ -1,4 +1,5 @@
-﻿using Clap.TestConsole;
+﻿using Clap.TestConsole.Examples;
+ImageConverter.Parse(args);
 
 var app = Git.Parse(args);
 Console.WriteLine($"Verbose: {app.Verbose}");

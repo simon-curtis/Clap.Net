@@ -1,6 +1,6 @@
 using Clap.Net;
 
-namespace Clap.TestConsole;
+namespace Clap.TestConsole.Examples;
 
 [Command(Name = "git", Summary = "A fictional versioning CLI")]
 public partial struct Git
