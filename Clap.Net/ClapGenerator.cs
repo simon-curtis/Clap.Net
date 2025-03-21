@@ -453,6 +453,7 @@ public class ClapGenerator : IIncrementalGenerator
                         writer.WriteLine($"case {name}:");
                         writer.WriteLine("{");
                         writer.IncreaseIndent();
+                        writer.WriteLine("index++;");
                         SetNamedArgumentValue(writer, value);
                         writer.WriteLine("break;");
                         writer.DecreaseIndent();
@@ -468,6 +469,7 @@ public class ClapGenerator : IIncrementalGenerator
                         writer.WriteLine("{");
                         writer.IncreaseIndent();
                         SetPositionalValue(writer, positional);
+                        writer.WriteLine("index++;");
                         writer.WriteLine("positionalIndex++;");
                         writer.WriteLine("break;");
                         writer.DecreaseIndent();
@@ -487,8 +489,6 @@ public class ClapGenerator : IIncrementalGenerator
 
         writer.DecreaseAndWriteLine("}");
         writer.WriteLine();
-        writer.WriteLine("index++;");
-
         writer.DecreaseAndWriteLine("}");
 
         writer.WriteLine();
@@ -631,19 +631,13 @@ public class ClapGenerator : IIncrementalGenerator
     private static void SetPositionalValue(Utf8IndentedWriter writer, PositionalArgumentModel argument)
     {
         // If member is array
-        if (argument.MemberType is IArrayTypeSymbol arrayType && arrayType.ElementType is not null)
+        if (argument.MemberType is IArrayTypeSymbol { ElementType: { } elementType })
         {
-            var childType = arrayType.ElementType.ToDisplayString(TypeNameFormat);
-            writer.WriteLine($$"""
-                               var builder = System.Collections.Immutable.ImmutableArray.CreateBuilder<{{childType}}>();
-                               while (index < args.Length && !args[index].StartsWith('-')) 
-                                   builder.Add({{GetArgConversion(arrayType.ElementType, "args[index++]".AsSpan())}});
-                               {{argument.VariableName}} = builder.ToArray();
-                               """);
+            WriteArraySetter(writer, argument.VariableName, elementType);
             return;
         }
 
-        writer.WriteLine($"{argument.VariableName} = {GetArgConversion(argument.MemberType, "args[index]".AsSpan())};");
+        writer.WriteLine($"{argument.VariableName} = {GetArgConversion(argument.MemberType)};");
     }
 
     private static void SetNamedArgumentValue(Utf8IndentedWriter writer, NamedArgumentModel argument)
@@ -651,7 +645,9 @@ public class ClapGenerator : IIncrementalGenerator
         if (argument.MemberType.ToDisplayString(TypeNameFormat) is "System.Boolean" or "System.Boolean?")
         {
             writer.WriteLine($$"""
-                               if (index < args.Length && bool.TryParse(args[index], out var b)) 
+                               if (index < args.Length 
+                                    && !args[index].StartsWith('-') 
+                                    && bool.TryParse(args[index + 1], out var b)) 
                                {
                                    {{argument.VariableName}} = b;
                                    index++;
@@ -664,52 +660,53 @@ public class ClapGenerator : IIncrementalGenerator
             return;
         }
 
-        writer.WriteLine($"""
-                          if (index >= args.Length || args[index + 1].StartsWith('-'))
-                              break;
-
-                          index++;
-                          """);
-
         // If member is array
-        if (argument.MemberType is IArrayTypeSymbol arrayType && arrayType.ElementType is not null)
+        if (argument.MemberType is IArrayTypeSymbol { ElementType: { } elementType })
         {
-            var childType = arrayType.ElementType.ToDisplayString(TypeNameFormat);
-            writer.WriteLine($$"""
-                               var builder = System.Collections.Immutable.ImmutableArray.CreateBuilder<{{childType}}>();
-                               while (index < args.Length && !args[index].StartsWith('-')) 
-                                   builder.Add({{GetArgConversion(arrayType.ElementType, "args[index++]".AsSpan())}});
-                               {{argument.VariableName}} = builder.ToArray();
-                               """);
+            WriteArraySetter(writer, argument.VariableName, elementType);
             return;
         }
 
-        writer.WriteLine($"{argument.VariableName} = {GetArgConversion(argument.MemberType, "args[index]".AsSpan())};");
+        writer.WriteLine($"{argument.VariableName} = {GetArgConversion(argument.MemberType)};");
     }
 
-    private static string? GetArgConversion(ITypeSymbol member, ReadOnlySpan<char> arg)
+    private static void WriteArraySetter(Utf8IndentedWriter writer, string variableName, ITypeSymbol elementType) 
+    {
+            var childType = elementType.ToDisplayString(TypeNameFormat);
+            writer.WriteLine($$"""
+                               var builder = System.Collections.Immutable.ImmutableArray.CreateBuilder<{{childType}}>();
+                               while (index < args.Length && !args[index].StartsWith('-')) 
+                               {
+                                   builder.Add({{GetArgConversion(elementType)}});
+                                   index++;
+                               }
+                               {{variableName}} = builder.ToArray();
+                               """);
+    }
+
+    private static string? GetArgConversion(ITypeSymbol member)
     {
         var nullable = member.NullableAnnotation is NullableAnnotation.Annotated;
         return member.ToDisplayString(TypeNameFormat).TrimEnd('?') switch
         {
-            "System.String" => arg.ToString(),
-            "System.Int32" => nullable ? $"int.TryParse({arg.ToString()}, out var v) ? v : null" : $"int.Parse({arg.ToString()})",
-            "System.Int64" => nullable ? $"long.TryParse({arg.ToString()}, out var v) ? v : null" : $"long.Parse({arg.ToString()})",
-            "System.Single" => nullable ? $"float.TryParse({arg.ToString()}, out var v) ? v : null" : $"float.Parse({arg.ToString()})",
-            "System.Double" => nullable ? $"double.TryParse({arg.ToString()}, out var v) ? v : null" : $"double.Parse({arg.ToString()})",
-            "System.Decimal" => nullable ? $"decimal.TryParse({arg.ToString()}, out var v) ? v : null" : $"decimal.Parse({arg.ToString()})",
-            "System.Boolean" => nullable ? $"bool.TryParse({arg.ToString()}, out var v) ? v : null" : $"bool.Parse({arg.ToString()})",
-            "System.Byte" => nullable ? $"byte.TryParse({arg.ToString()}, out var v) ? v : null" : $"byte.Parse({arg.ToString()})",
-            "System.SByte" => nullable ? $"sbyte.TryParse({arg.ToString()}, out var v) ? v : null" : $"sbyte.Parse({arg.ToString()})",
-            "System.Int16" => nullable ? $"short.TryParse({arg.ToString()}, out var v) ? v : null" : $"short.Parse({arg.ToString()})",
-            "System.UInt16" => nullable ? $"ushort.TryParse({arg.ToString()}, out var v) ? v : null" : $"ushort.Parse({arg.ToString()})",
-            "System.UInt32" => nullable ? $"uint.TryParse({arg.ToString()}, out var v) ? v : null" : $"uint.Parse({arg.ToString()})",
-            "System.UInt64" => nullable ? $"ulong.TryParse({arg.ToString()}, out var v) ? v : null" : $"ulong.Parse({arg.ToString()})",
-            "System.Char" => nullable ? $"char.TryParse({arg.ToString()}, out var v) ? v : null" : $"char.Parse({arg.ToString()})",
-            "System.DateTime" => nullable ? $"DateTime.TryParse({arg.ToString()}, out var v) ? v : null" : $"DateTime.Parse({arg.ToString()})",
-            "System.TimeSpan" => nullable ? $"TimeSpan.TryParse({arg.ToString()}, out var v) ? v : null" : $"TimeSpan.Parse({arg.ToString()})",
-            "System.Guid" => nullable ? $"Guid.TryParse({arg.ToString()}, out var v) ? v : null" : $"Guid.Parse({arg.ToString()})",
-            var other => $"Convert.ChangeType({arg.ToString()}, typeof({other}))"
+            "System.String" => "args[index]",
+            "System.Int32" => nullable ? $"int.TryParse(args[index], out var v) ? v : null" : $"int.Parse(args[index])",
+            "System.Int64" => nullable ? $"long.TryParse(args[index], out var v) ? v : null" : $"long.Parse(args[index])",
+            "System.Single" => nullable ? $"float.TryParse(args[index], out var v) ? v : null" : $"float.Parse(args[index])",
+            "System.Double" => nullable ? $"double.TryParse(args[index], out var v) ? v : null" : $"double.Parse(args[index])",
+            "System.Decimal" => nullable ? $"decimal.TryParse(args[index], out var v) ? v : null" : $"decimal.Parse(args[index])",
+            "System.Boolean" => nullable ? $"bool.TryParse(args[index], out var v) ? v : null" : $"bool.Parse(args[index])",
+            "System.Byte" => nullable ? $"byte.TryParse(args[index], out var v) ? v : null" : $"byte.Parse(args[index])",
+            "System.SByte" => nullable ? $"sbyte.TryParse(args[index], out var v) ? v : null" : $"sbyte.Parse(args[index])",
+            "System.Int16" => nullable ? $"short.TryParse(args[index], out var v) ? v : null" : $"short.Parse(args[index])",
+            "System.UInt16" => nullable ? $"ushort.TryParse(args[index], out var v) ? v : null" : $"ushort.Parse(args[index])",
+            "System.UInt32" => nullable ? $"uint.TryParse(args[index], out var v) ? v : null" : $"uint.Parse(args[index])",
+            "System.UInt64" => nullable ? $"ulong.TryParse(args[index], out var v) ? v : null" : $"ulong.Parse(args[index])",
+            "System.Char" => nullable ? $"char.TryParse(args[index], out var v) ? v : null" : $"char.Parse(args[index])",
+            "System.DateTime" => nullable ? $"DateTime.TryParse(args[index], out var v) ? v : null" : $"DateTime.Parse(args[index])",
+            "System.TimeSpan" => nullable ? $"TimeSpan.TryParse(args[index], out var v) ? v : null" : $"TimeSpan.Parse(args[index])",
+            "System.Guid" => nullable ? $"Guid.TryParse(args[index], out var v) ? v : null" : $"Guid.Parse(args[index])",
+            var other =>  $"Convert.ChangeType(args[index], typeof({(nullable ? $"{other}?" : other)}))"
         };
     }
 

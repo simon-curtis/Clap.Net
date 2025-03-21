@@ -17,6 +17,10 @@ switch (app.Command)
         Console.WriteLine($"Diffing {diff.Base} {diff.Head} {diff.Path}");
         break;
 
+    case Commands.Clone clone:
+        Console.WriteLine($"Cloning: {clone.Repository} {clone.Directory}");
+        break;
+
     default:
         Console.WriteLine("Unknown command");
         break;
