@@ -39,6 +39,12 @@ public ref struct Utf8IndentedWriter(MemoryStream stream, string indentString = 
         }
     }
 
+    public void DecreaseAndWriteLine(string text)
+    {
+        DecreaseIndent();
+        WriteLine(text);
+    }
+
     public void WriteLine(char c)
     {
         if (_atLineStart)

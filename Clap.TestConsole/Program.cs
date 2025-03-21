@@ -1,5 +1,4 @@
-﻿using System.Collections.Immutable;
-using Clap.TestConsole;
+﻿using Clap.TestConsole;
 
 var app = Git.Parse(args);
 Console.WriteLine($"Verbose: {app.Verbose}");

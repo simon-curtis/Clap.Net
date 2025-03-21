@@ -7,7 +7,7 @@ public sealed class CommandAttribute : Attribute
     public string? Name { get; init; }
     public string? Description { get; init; }
     public bool IsDefault { get; init; }
-    public bool Subcommand { get; init; }
+    public bool SubCommand { get; init; }
 }
 
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, Inherited = false)]
@@ -27,4 +27,5 @@ public sealed class ArgAttribute : Attribute
     public int Index { get; init; }
     public string? Description { get; init; }
     public bool Required { get; init; }
+    public bool Last { get; init; }
 }
