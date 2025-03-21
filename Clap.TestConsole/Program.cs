@@ -1,5 +1,10 @@
-﻿using Clap.TestConsole.Examples;
-ImageConverter.Parse(args);
+﻿using System.Runtime.InteropServices;
+using Clap.TestConsole.Examples;
+
+System.IO.Path.GetFileNameWithoutExtension(Environment.GetCommandLineArgs()[0]);
+if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows)){
+    
+}
 
 var app = Git.Parse(args);
 Console.WriteLine($"Verbose: {app.Verbose}");
