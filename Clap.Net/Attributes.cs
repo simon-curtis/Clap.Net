@@ -5,6 +5,7 @@ namespace Clap.Net;
 public sealed class CommandAttribute : Attribute
 {
     public string? Name { get; init; }
+    public string? Summary { get; init; }
     public string? Description { get; init; }
     public bool IsDefault { get; init; }
     public bool SubCommand { get; init; }
