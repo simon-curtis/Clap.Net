@@ -15,17 +15,17 @@ public partial class Git
 [SubCommand]
 public abstract partial class Commands
 {
-    [Command(Name = "status")]
-    public sealed partial class Status : Commands;
+    [Command(Name = "status", Description = "Show the working tree status")]
+    public sealed partial class StatusCommand : Commands;
 
-    [Command(Name = "add")]
+    [Command(Description = "Add file contents to the index")]
     public sealed partial class Add : Commands
     {
-        
+        [Arg(Required = true)]
         public required string[] Paths { get; init; }
     }
 
-    [Command]
+    [Command(Description = "Show changes between commits, commit and working tree, etc")]
     public sealed partial class Diff : Commands
     {
         public required string Base { get; init; }
