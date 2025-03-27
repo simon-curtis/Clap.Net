@@ -1,6 +1,4 @@
 using System.Collections.Immutable;
-using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -12,6 +10,7 @@ internal record CommandModel(
     string Kind,
     string? Name,
     string? Summary,
+    string? Version,
     string? Description,
     INamedTypeSymbol Symbol,
     SubCommandArgumentModel? SubCommandArgumentModel,
@@ -54,6 +53,13 @@ public class ClapGenerator : IIncrementalGenerator
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
+        var compilerInfoProvider = context
+            .CompilationProvider
+            .Select((c, _) =>
+            {
+                return c.Assembly.Identity.Version.ToString();
+            });
+
         var commandCandidates = context.SyntaxProvider
             .CreateSyntaxProvider(
                 predicate: static (node, _) => node is ClassDeclarationSyntax or StructDeclarationSyntax,
@@ -99,18 +105,20 @@ public class ClapGenerator : IIncrementalGenerator
             )
             .Where(symbol => symbol != null);
 
-        var combined = commandCandidates.Collect().Combine(subCommandCandidates.Collect());
+        var combined = commandCandidates.Collect()
+            .Combine(subCommandCandidates.Collect())
+            .Combine(compilerInfoProvider);
 
         context.RegisterSourceOutput(combined, (spc, combined) =>
         {
-            var (commandModels, subCommandModels) = combined!;
+            var ((commandModels, subCommandModels), version) = combined!;
 
             foreach (var commandModel in commandModels)
             {
                 if (commandModel is null)
                     continue;
 
-                var output = GenerateCommandParseMethod(commandModel, subCommandModels);
+                var output = GenerateCommandParseMethod(commandModel, subCommandModels, version);
                 spc.AddSource($"{commandModel.Symbol.Name}.ParseMethod.g.cs", SourceText.From(output, Encoding.UTF8));
             }
 
@@ -220,6 +228,7 @@ public class ClapGenerator : IIncrementalGenerator
             },
             commandAttribute.NamedArguments.FirstOrDefault(a => a.Key is nameof(CommandAttribute.Name)).Value.Value?.ToString() ?? symbol.Name.ToSnakeCase(),
             commandAttribute.NamedArguments.FirstOrDefault(a => a.Key is nameof(CommandAttribute.Summary)).Value.Value?.ToString(),
+            commandAttribute.NamedArguments.FirstOrDefault(a => a.Key is nameof(CommandAttribute.Version)).Value.Value?.ToString(),
             commandAttribute.NamedArguments.FirstOrDefault(a => a.Key is nameof(CommandAttribute.Description)).Value.Value?.ToString(),
             namedTypeSymbol,
             subCommandArgumentModel,
@@ -227,7 +236,7 @@ public class ClapGenerator : IIncrementalGenerator
         );
     }
 
-    private static string GenerateCommandParseMethod(CommandModel commandModel, ImmutableArray<SubCommandModel?> subCommandModels)
+    private static string GenerateCommandParseMethod(CommandModel commandModel, ImmutableArray<SubCommandModel?> subCommandModels, string? assemblyVersion)
     {
         var typeName = commandModel.Symbol.Name;
         var fullName = commandModel.Symbol.ToDisplayString(TypeNameFormat);
@@ -235,6 +244,7 @@ public class ClapGenerator : IIncrementalGenerator
                 ? FindSubCommand(c.MemberType, subCommandModels)
                 : null;
         var subCommands = subCommand?.Commands ?? [];
+        var version = commandModel.Version ?? assemblyVersion;
 
         var ns = commandModel.Symbol.ContainingNamespace.IsGlobalNamespace
                     ? null
@@ -268,7 +278,7 @@ public class ClapGenerator : IIncrementalGenerator
 
         writer.WriteLine($"private const string HelpMessage = \"\"\"");
         writer.IncreaseIndent();
-        writer.WriteLine(GenerateHelpMessage(commandModel, subCommand));
+        writer.WriteLine(GenerateHelpMessage(commandModel, subCommand, version));
         writer.WriteLine("\"\"\";");
         writer.DecreaseIndent();
         writer.WriteLine();
@@ -288,6 +298,18 @@ public class ClapGenerator : IIncrementalGenerator
                          }
                          """);
         writer.WriteLine();
+
+        if (version is not null)
+        {
+            writer.WriteLine($$"""
+                               if (args.Length > 0 && args[0] is "-v" or "--version")
+                               {
+                                   System.Console.WriteLine("{{version}}");
+                                   System.Environment.Exit(0);
+                               }
+                               """);
+            writer.WriteLine();
+        }
 
         if (commandModel.Arguments.Length is 0)
         {
@@ -664,10 +686,13 @@ public class ClapGenerator : IIncrementalGenerator
         return subCommandModels.FirstOrDefault(sc => memberType == sc?.Symbol.ToDisplayString(TypeNameFormat).TrimEnd('?'));
     }
 
-    private static string GenerateHelpMessage(CommandModel commandModel, SubCommandModel? subCommand)
+    private static string GenerateHelpMessage(CommandModel commandModel, SubCommandModel? subCommand, string? version)
     {
         var commandName = commandModel.Name;
         var sb = new StringBuilder($"# {commandName}");
+
+        if (version is not null)
+            sb.Append($" @ {version}");
 
         if (!string.IsNullOrEmpty(commandModel.Summary))
         {
@@ -733,7 +758,7 @@ public class ClapGenerator : IIncrementalGenerator
         return sb.ToString();
     }
 
-    private static void WriteHelperMethods(Utf8IndentedWriter writer) 
+    private static void WriteHelperMethods(Utf8IndentedWriter writer)
     {
         writer.WriteLine();
         writer.WriteLine("""
