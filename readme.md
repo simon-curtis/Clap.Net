@@ -90,6 +90,37 @@ dotnet run -- "~/Downloads/tree.png" -e "jpg" publish "https://yourdomain.com/up
 *   **Options and Arguments:** Define options and arguments using attributes.
 *   **Automatic help generation:** Generate help messages automatically.
 
+## Core Feature Parity
+
+- [x] [Command] support
+    - [x] Define the root command type
+    - [x] Support for Name, Description, Version
+- [x] [Subcommand] support
+    - [x] Nesting subcommands as classes
+    - [x] Subcommand help messages
+- [ ] [Option] (named arguments)
+    - [x] Short and long flags (e.g., -v, --verbose)
+    - [x] Aliases for options
+    - [ ] Environment variable fallback
+    - [ ] Default values
+    - [x] Required vs optional
+- [ ] [Switch] (bool flags)
+    - [x] Basic presence/absence flag
+    - [x] Default to false unless specified
+    - [ ] Negatable flags (--no-flag)
+- [ ] [Positional] arguments
+    - [x] Order-based argument mapping
+    - [x] Optional vs Required
+    - [ ] Default values
+    - [x] Multiple values (e.g., list)
+    - [ ] Custom parsers
+    - [ ] TryParse support for complex types
+    - [ ] Validation attributes
+- [ ] Help and version handling
+    - [x] Automatic --help
+    - [ ] Automatic --version
+    - [ ] Custom help text
+
 ## Contributing
 
 There is still loads to do, pull-requests are welcome
