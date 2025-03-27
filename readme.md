@@ -102,7 +102,7 @@ dotnet run -- "~/Downloads/tree.png" -e "jpg" publish "https://yourdomain.com/up
     - [x] Short and long flags (e.g., -v, --verbose)
     - [x] Aliases for options
     - [ ] Environment variable fallback
-    - [ ] Default values
+    - [x] Default values (handled by language)
     - [x] Required vs optional
 - [ ] [Switch] (bool flags)
     - [x] Basic presence/absence flag
@@ -111,7 +111,7 @@ dotnet run -- "~/Downloads/tree.png" -e "jpg" publish "https://yourdomain.com/up
 - [ ] [Positional] arguments
     - [x] Order-based argument mapping
     - [x] Optional vs Required
-    - [ ] Default values
+    - [x] Default values (handled by language)
     - [x] Multiple values (e.g., list)
     - [ ] Custom parsers
     - [ ] TryParse support for complex types
