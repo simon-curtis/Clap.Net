@@ -38,6 +38,7 @@ internal record NamedArgumentModel(
     string? Description,
     char? ShortName,
     string? LongName,
+    string? Env,
     ITypeSymbol MemberType,
     bool Required
 ) : ArgumentModel(Symbol, MemberType, VariableName);
@@ -177,6 +178,7 @@ public class ClapGenerator : IIncrementalGenerator
             var shortName = argAttribute.NamedArguments.FirstOrDefault(a => a.Key is nameof(ArgAttribute.ShortName)).Value.Value;
             var longName = argAttribute.NamedArguments.FirstOrDefault(a => a.Key is nameof(ArgAttribute.LongName)).Value.Value;
             var required = argAttribute.NamedArguments.FirstOrDefault(a => a.Key is nameof(ArgAttribute.Required)).Value.Value;
+            var env = argAttribute.NamedArguments.FirstOrDefault(a => a.Key is nameof(ArgAttribute.Env)).Value.Value;
 
             if (shortName is not null || longName is not null)
             {
@@ -187,6 +189,7 @@ public class ClapGenerator : IIncrementalGenerator
                     description as string,
                     shortName as char?,
                     longName as string,
+                    env as string,
                     memberType,
                     required as bool? ?? false
                 ));
@@ -317,7 +320,10 @@ public class ClapGenerator : IIncrementalGenerator
                 case NamedArgumentModel arg:
                     {
                         var type = arg.MemberType.ToDisplayString(TypeNameFormat);
-                        var defaultValue = GetDefaultValueString(arg.MemberType);
+                        var initialValue = GetDefaultValueString(arg.MemberType);
+                        var defaultValue = arg.Env is { } env
+                            ? $"Environment.GetEnvironmentVariable(\"{env}\") is {{ }} env ? {GetArgConversion(arg.MemberType, "env")} : {initialValue}"
+                            : initialValue;
 
                         writer.WriteLine($"// Argument '{arg.Symbol.Name}' is a named argument");
                         writer.WriteLine($"{type} {arg.VariableName} = {defaultValue};");
@@ -607,29 +613,29 @@ public class ClapGenerator : IIncrementalGenerator
                                """);
     }
 
-    private static string? GetArgConversion(ITypeSymbol member)
+    private static string? GetArgConversion(ITypeSymbol member, string variableName = "args[index]")
     {
         var nullable = member.NullableAnnotation is NullableAnnotation.Annotated;
         return member.ToDisplayString(TypeNameFormat).TrimEnd('?') switch
         {
-            "System.String" => "args[index]",
-            "System.Int32" => nullable ? $"int.TryParse(args[index], out var v) ? v : null" : $"int.Parse(args[index])",
-            "System.Int64" => nullable ? $"long.TryParse(args[index], out var v) ? v : null" : $"long.Parse(args[index])",
-            "System.Single" => nullable ? $"float.TryParse(args[index], out var v) ? v : null" : $"float.Parse(args[index])",
-            "System.Double" => nullable ? $"double.TryParse(args[index], out var v) ? v : null" : $"double.Parse(args[index])",
-            "System.Decimal" => nullable ? $"decimal.TryParse(args[index], out var v) ? v : null" : $"decimal.Parse(args[index])",
-            "System.Boolean" => nullable ? $"bool.TryParse(args[index], out var v) ? v : null" : $"bool.Parse(args[index])",
-            "System.Byte" => nullable ? $"byte.TryParse(args[index], out var v) ? v : null" : $"byte.Parse(args[index])",
-            "System.SByte" => nullable ? $"sbyte.TryParse(args[index], out var v) ? v : null" : $"sbyte.Parse(args[index])",
-            "System.Int16" => nullable ? $"short.TryParse(args[index], out var v) ? v : null" : $"short.Parse(args[index])",
-            "System.UInt16" => nullable ? $"ushort.TryParse(args[index], out var v) ? v : null" : $"ushort.Parse(args[index])",
-            "System.UInt32" => nullable ? $"uint.TryParse(args[index], out var v) ? v : null" : $"uint.Parse(args[index])",
-            "System.UInt64" => nullable ? $"ulong.TryParse(args[index], out var v) ? v : null" : $"ulong.Parse(args[index])",
-            "System.Char" => nullable ? $"char.TryParse(args[index], out var v) ? v : null" : $"char.Parse(args[index])",
-            "System.DateTime" => nullable ? $"DateTime.TryParse(args[index], out var v) ? v : null" : $"DateTime.Parse(args[index])",
-            "System.TimeSpan" => nullable ? $"TimeSpan.TryParse(args[index], out var v) ? v : null" : $"TimeSpan.Parse(args[index])",
-            "System.Guid" => nullable ? $"Guid.TryParse(args[index], out var v) ? v : null" : $"Guid.Parse(args[index])",
-            var other => $"Convert.ChangeType(args[index], typeof({(nullable ? $"{other}?" : other)}))"
+            "System.String" => variableName,
+            "System.Int32" => nullable ? $"int.TryParse({variableName}, out var v) ? v : null" : $"int.Parse({variableName})",
+            "System.Int64" => nullable ? $"long.TryParse({variableName}, out var v) ? v : null" : $"long.Parse({variableName})",
+            "System.Single" => nullable ? $"float.TryParse({variableName}, out var v) ? v : null" : $"float.Parse({variableName})",
+            "System.Double" => nullable ? $"double.TryParse({variableName}, out var v) ? v : null" : $"double.Parse({variableName})",
+            "System.Decimal" => nullable ? $"decimal.TryParse({variableName}, out var v) ? v : null" : $"decimal.Parse({variableName})",
+            "System.Boolean" => nullable ? $"bool.TryParse({variableName}, out var v) ? v : null" : $"bool.Parse({variableName})",
+            "System.Byte" => nullable ? $"byte.TryParse({variableName}, out var v) ? v : null" : $"byte.Parse({variableName})",
+            "System.SByte" => nullable ? $"sbyte.TryParse({variableName}, out var v) ? v : null" : $"sbyte.Parse({variableName})",
+            "System.Int16" => nullable ? $"short.TryParse({variableName}, out var v) ? v : null" : $"short.Parse({variableName})",
+            "System.UInt16" => nullable ? $"ushort.TryParse({variableName}, out var v) ? v : null" : $"ushort.Parse({variableName})",
+            "System.UInt32" => nullable ? $"uint.TryParse({variableName}, out var v) ? v : null" : $"uint.Parse({variableName})",
+            "System.UInt64" => nullable ? $"ulong.TryParse({variableName}, out var v) ? v : null" : $"ulong.Parse({variableName})",
+            "System.Char" => nullable ? $"char.TryParse({variableName}, out var v) ? v : null" : $"char.Parse({variableName})",
+            "System.DateTime" => nullable ? $"DateTime.TryParse({variableName}, out var v) ? v : null" : $"DateTime.Parse({variableName})",
+            "System.TimeSpan" => nullable ? $"TimeSpan.TryParse({variableName}, out var v) ? v : null" : $"TimeSpan.Parse({variableName})",
+            "System.Guid" => nullable ? $"Guid.TryParse({variableName}, out var v) ? v : null" : $"Guid.Parse({variableName})",
+            var other => $"Convert.ChangeType({variableName}, typeof({(nullable ? $"{other}?" : other)}))"
         };
     }
 

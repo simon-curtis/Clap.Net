@@ -101,7 +101,7 @@ dotnet run -- "~/Downloads/tree.png" -e "jpg" publish "https://yourdomain.com/up
 - [ ] [Option] (named arguments)
     - [x] Short and long flags (e.g., -v, --verbose)
     - [x] Aliases for options
-    - [ ] Environment variable fallback
+    - [x] Environment variable fallback
     - [x] Default values (handled by language)
     - [x] Required vs optional
 - [ ] [Switch] (bool flags)
