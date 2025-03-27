@@ -29,4 +29,5 @@ public sealed class ArgAttribute : Attribute
     public string? Description { get; init; }
     public bool Required { get; init; }
     public bool Last { get; init; }
+    public string? Env { get; init; }
 }

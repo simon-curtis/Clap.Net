@@ -5,6 +5,9 @@ namespace Clap.TestConsole.Examples;
 [Command(Name = "git", Summary = "A fictional versioning CLI")]
 public partial struct Git
 {
+    [Arg(ShortName = 'u', LongName = "username", Env = "GIT_USER_NAME", Description = "The user name to use for the commit")]
+    public string? UserName { get; init; }
+
     [Arg(ShortName = 'v', Description = "Prints verbose output")]
     public bool Verbose { get; init; }
 
