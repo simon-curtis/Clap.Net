@@ -118,7 +118,7 @@ dotnet run -- "~/Downloads/tree.png" -e "jpg" publish "https://yourdomain.com/up
     - [ ] Validation attributes
 - [ ] Help and version handling
     - [x] Automatic --help
-    - [ ] Automatic --version
+    - [x] Automatic --version
     - [ ] Custom help text
 
 ## Contributing

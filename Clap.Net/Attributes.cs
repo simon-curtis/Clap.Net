@@ -4,10 +4,17 @@ namespace Clap.Net;
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Property | AttributeTargets.Field, Inherited = false)]
 public sealed class CommandAttribute : Attribute
 {
+    /// <summary>
+    /// A custom name for the app. Will default to the name of the class or struct.
+    /// </summary>
     public string? Name { get; init; }
+
+    /// <summary>
+    /// A custom version for the app. Will default to the version specified in the csproj file <Version>2.0.0</Version>
+    /// </summary>
+    public string? Version { get; init; }
     public string? Summary { get; init; }
     public string? Description { get; init; }
-    public bool IsDefault { get; init; }
     public bool SubCommand { get; init; }
 }
 
