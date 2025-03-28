@@ -14,24 +14,22 @@ public ref struct Utf8IndentedWriter(MemoryStream stream, string indentString = 
 
     public void WriteLine(string text)
     {
-        int start = 0;
-        for (int i = 0; i < text.Length; i++)
+        var start = 0;
+        for (var i = 0; i < text.Length; i++)
         {
-            if (text[i] == '\n')
-            {
-                int length = i - start;
-                if (length > 0 && text[i - 1] == '\r') // Handle CRLF
-                    length--;
+            if (text[i] != '\n') continue;
+            var length = i - start;
+            if (length > 0 && text[i - 1] == '\r') // Handle CRLF
+                length--;
 
-                WriteLineSegment(text, start, length);
-                start = i + 1;
-            }
+            WriteLineSegment(text, start, length);
+            start = i + 1;
         }
 
         // Write remaining part (even empty lines)
         if (start <= text.Length - 1)
         {
-            int length = text.Length - start;
+            var length = text.Length - start;
             if (length > 0 && text.Last() == '\r')
                 length--;
 
@@ -82,18 +80,16 @@ public ref struct Utf8IndentedWriter(MemoryStream stream, string indentString = 
 
     private void WriteIndent()
     {
-        for (int i = 0; i < _indentLevel; i++)
+        for (var i = 0; i < _indentLevel; i++)
             WriteUtf8(indentString);
         _atLineStart = false;
     }
 
     private void WriteUtf8(string text)
     {
-        int byteCount = _encoding.GetByteCount(text);
+        var byteCount = _encoding.GetByteCount(text);
         if (byteCount > _scratchBuffer.Length)
-        {
             _scratchBuffer = new byte[Math.Max(byteCount, _scratchBuffer.Length * 2)];
-        }
 
         _encoding.GetBytes(text, 0, text.Length, _scratchBuffer, 0);
         stream.Write(_scratchBuffer, 0, byteCount);
