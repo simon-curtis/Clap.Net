@@ -127,8 +127,7 @@ public class ClapGenerator : IIncrementalGenerator
                     continue;
 
                 var output = GenerateSubCommandParseMethod(subCommand);
-                var name = subCommand.Symbol.Name;
-                spc.AddSource($"{name}.ParseMethod.g.cs", SourceText.From(output, Encoding.UTF8));
+                spc.AddSource($"{subCommand.Symbol.Name}.ParseMethod.g.cs", SourceText.From(output, Encoding.UTF8));
             }
         });
     }
@@ -209,8 +208,12 @@ public class ClapGenerator : IIncrementalGenerator
             arguments.Add(argument);
         }
 
-        var namedArguments = commandAttribute.NamedArguments
+        var args = commandAttribute.NamedArguments
             .ToDictionary(_ => _.Key, _ => _.Value.Value);
+
+        var commentary = typeDeclarationSyntax is not null
+            ? ExtractSummary(typeDeclarationSyntax.ToFullString().AsSpan())
+            : null;
 
         return new CommandModel(
             Kind: commandCandidateSymbol switch
@@ -219,14 +222,11 @@ public class ClapGenerator : IIncrementalGenerator
                 { TypeKind: TypeKind.Struct } => commandCandidateSymbol.IsRecord ? "record struct" : "struct",
                 _ => "class"
             },
-            Name: namedArguments.GetOrDefault(nameof(CommandAttribute.Name)) as string ??
+            Name: args.GetOrDefault(nameof(CommandAttribute.Name)) as string ??
                   commandCandidateSymbol.Name.ToSnakeCase(),
-            About: namedArguments.GetOrDefault(nameof(CommandAttribute.About)) as string
-                   ?? (typeDeclarationSyntax is not null
-                       ? GetSummaryComment(typeDeclarationSyntax)
-                       : commandCandidateSymbol.GetDocumentationCommentXml()),
-            LongAbout: namedArguments.GetOrDefault(nameof(CommandAttribute.LongAbout)) as string,
-            Version: namedArguments.GetOrDefault(nameof(CommandAttribute.Version)) as string,
+            About: args.GetOrDefault(nameof(CommandAttribute.About)) as string ?? commentary?.About,
+            LongAbout: args.GetOrDefault(nameof(CommandAttribute.LongAbout)) as string ?? commentary?.LongAbout,
+            Version: args.GetOrDefault(nameof(CommandAttribute.Version)) as string,
             Symbol: commandCandidateSymbol,
             SubCommandArgumentModel: subCommandArgumentModel,
             Arguments: [.. arguments]
@@ -257,6 +257,8 @@ public class ClapGenerator : IIncrementalGenerator
 
             writer.WriteLine("#nullable enable");
             writer.WriteLine();
+
+            writer.WriteLine(GetHeader(commandModel));
 
             if (ns is not null)
             {
@@ -742,15 +744,10 @@ public class ClapGenerator : IIncrementalGenerator
     {
         var sb = new StringBuilder();
 
-        if (!string.IsNullOrEmpty(commandModel.About))
+        var about = commandModel.LongAbout ?? commandModel.About;
+        if (!string.IsNullOrEmpty(about))
         {
-            sb.AppendLine(commandModel.About!.Trim());
-            sb.AppendLine();
-        }
-
-        if (!string.IsNullOrEmpty(commandModel.LongAbout))
-        {
-            sb.AppendLine(commandModel.LongAbout);
+            sb.AppendLine(about!.Trim());
             sb.AppendLine();
         }
 
@@ -830,15 +827,9 @@ public class ClapGenerator : IIncrementalGenerator
                          """);
     }
 
-    private static string? GetSummaryComment(SyntaxNode node)
-    {
-        var commentText = ExtractSummary(node.ToFullString().AsSpan());
-        return commentText is null ? null : RemoveInvalidCharacters(commentText.AsSpan());
-    }
-
     private static readonly char[] AllowedCharacters = [' ', '\t', '\n', '\r', '&'];
 
-    private static string? ExtractSummary(ReadOnlySpan<char> source)
+    private static (string About, string? LongAbout)? ExtractSummary(ReadOnlySpan<char> source)
     {
         const string summaryStartTag = "<summary>";
         const string summaryEndTag = "</summary>";
@@ -873,13 +864,16 @@ public class ClapGenerator : IIncrementalGenerator
             if (line.StartsWith("///".AsSpan()))
                 line = line.Slice(3);
 
-            var trimmed = line.ToString().Trim();
-            lines.Add(trimmed);
+            var trimmed = RemoveInvalidCharacters(line).ToString().Trim();
+            if (trimmed.Length > 0)
+                lines.Add(trimmed);
         }
 
-        return string.Join("\n", lines).Trim();
+        return (
+            About: lines[0],
+            LongAbout: lines.Count is 1 ? null : string.Join("\n", lines)
+        );
     }
-
 
     private static string RemoveInvalidCharacters(ReadOnlySpan<char> source)
     {
@@ -896,5 +890,16 @@ public class ClapGenerator : IIncrementalGenerator
         }
 
         return span.Slice(0, spanIndex).ToString();
+    }
+    
+    private static string GetHeader(CommandModel commandModel)
+    {
+        return $"""
+                /*
+                * Name: {commandModel.Name}
+                * About: {commandModel.About}
+                * Long About: {commandModel.LongAbout}
+                */
+                """;
     }
 }
