@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 using System.Text;
-using System.Text.RegularExpressions;
+using Clap.Net.Extensions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
@@ -19,11 +19,13 @@ internal record CommandModel(
 );
 
 internal record SubCommandModel(ISymbol Symbol, CommandModel[] Commands);
+
 internal record SubCommandArgumentModel(ISymbol Symbol, ITypeSymbol MemberType, string Name);
+
 internal abstract record ArgumentModel(ISymbol Symbol, ITypeSymbol MemberType, string VariableName);
+
 internal record PositionalArgumentModel(
     ISymbol Symbol,
-    AttributeData? Attribute,
     ITypeSymbol MemberType,
     string VariableName,
     int Index,
@@ -32,7 +34,6 @@ internal record PositionalArgumentModel(
 
 internal record NamedArgumentModel(
     ISymbol Symbol,
-    AttributeData? Attribute,
     string VariableName,
     string? Help,
     char? Short,
@@ -54,10 +55,7 @@ public class ClapGenerator : IIncrementalGenerator
     {
         var compilerInfoProvider = context
             .CompilationProvider
-            .Select((c, _) =>
-            {
-                return c.Assembly.Identity.Version.ToString();
-            });
+            .Select((c, _) => c.Assembly.Identity.Version.ToString());
 
         var commandCandidates = context.SyntaxProvider
             .CreateSyntaxProvider(
@@ -65,7 +63,7 @@ public class ClapGenerator : IIncrementalGenerator
                 transform: static (ctx, _) =>
                 {
                     var decl = (TypeDeclarationSyntax)ctx.Node;
-                    var symbol = ctx.SemanticModel.GetDeclaredSymbol(decl)!;
+                    var symbol = (INamedTypeSymbol)ctx.SemanticModel.GetDeclaredSymbol(decl)!;
                     return GetCommandModel(decl, symbol);
                 }
             )
@@ -77,10 +75,7 @@ public class ClapGenerator : IIncrementalGenerator
                 transform: static (ctx, _) =>
                 {
                     var decl = (TypeDeclarationSyntax)ctx.Node;
-                    var symbol = ctx.SemanticModel.GetDeclaredSymbol(decl);
-
-                    if (symbol is null)
-                        return null;
+                    var symbol = (INamedTypeSymbol)ctx.SemanticModel.GetDeclaredSymbol(decl)!;
 
                     var subCommandAttribute = symbol
                         .GetAttributes()
@@ -90,8 +85,7 @@ public class ClapGenerator : IIncrementalGenerator
                         return null;
 
                     var commands = new List<CommandModel>();
-                    var namedTypeSymbol = (INamedTypeSymbol)symbol;
-                    foreach (var nestedTypeSymbol in namedTypeSymbol.GetTypeMembers())
+                    foreach (var nestedTypeSymbol in symbol.GetTypeMembers())
                     {
                         if (nestedTypeSymbol.DeclaredAccessibility != Accessibility.Public)
                             continue;
@@ -114,9 +108,9 @@ public class ClapGenerator : IIncrementalGenerator
             .Combine(subCommandCandidates.Collect())
             .Combine(compilerInfoProvider);
 
-        context.RegisterSourceOutput(combined, (spc, combined) =>
+        context.RegisterSourceOutput(combined, (spc, tuple) =>
         {
-            var ((commandModels, subCommandModels), version) = combined!;
+            var ((commandModels, subCommandModels), version) = tuple;
 
             foreach (var commandModel in commandModels)
             {
@@ -127,18 +121,21 @@ public class ClapGenerator : IIncrementalGenerator
                 spc.AddSource($"{commandModel.Symbol.Name}.ParseMethod.g.cs", SourceText.From(output, Encoding.UTF8));
             }
 
-            foreach (var subCommandModel in subCommandModels)
+            foreach (var subCommand in subCommandModels)
             {
-                if (subCommandModel is null)
+                if (subCommand is null)
                     continue;
 
-                var output = GenerateSubCommandParseMethod(subCommandModel);
-                spc.AddSource($"{subCommandModel.Symbol.Name}.ParseMethod.g.cs", SourceText.From(output, Encoding.UTF8));
+                var output = GenerateSubCommandParseMethod(subCommand);
+                var name = subCommand.Symbol.Name;
+                spc.AddSource($"{name}.ParseMethod.g.cs", SourceText.From(output, Encoding.UTF8));
             }
         });
     }
 
-    private static CommandModel? GetCommandModel(TypeDeclarationSyntax? typeDeclarationSyntax, ISymbol commandCandidateSymbol)
+    private static CommandModel? GetCommandModel(
+        TypeDeclarationSyntax? typeDeclarationSyntax,
+        INamedTypeSymbol commandCandidateSymbol)
     {
         var commandAttribute = commandCandidateSymbol
             .GetAttributes()
@@ -147,14 +144,15 @@ public class ClapGenerator : IIncrementalGenerator
         if (commandAttribute is null)
             return null;
 
-        var namedTypeSymbol = (INamedTypeSymbol)commandCandidateSymbol;
+
         var arguments = new List<ArgumentModel>();
-        var subCommandArgumentModel = (SubCommandArgumentModel?)null;
+        SubCommandArgumentModel? subCommandArgumentModel = null;
 
         var positionalIndex = 0;
-        foreach (var member in namedTypeSymbol.GetMembers())
+        foreach (var member in commandCandidateSymbol.GetMembers())
         {
-            if (member is not IPropertySymbol and not IFieldSymbol || member.DeclaredAccessibility != Accessibility.Public)
+            if (member is not IPropertySymbol and not IFieldSymbol ||
+                member.DeclaredAccessibility != Accessibility.Public)
                 continue;
 
             var memberType = member switch
@@ -174,7 +172,10 @@ public class ClapGenerator : IIncrementalGenerator
 
             if (attributes.TryGetValue(nameof(CommandAttribute), out var command))
             {
-                var name = command?.NamedArguments.FirstOrDefault(a => a.Key is nameof(CommandAttribute.Name)).Value.Value?.ToString() ?? member.Name;
+                var name = command?.NamedArguments
+                    .FirstOrDefault(a => a.Key is nameof(CommandAttribute.Name))
+                    .Value.Value?.ToString() ?? member.Name;
+
                 subCommandArgumentModel = new SubCommandArgumentModel(member, memberType, name);
                 continue;
             }
@@ -183,52 +184,50 @@ public class ClapGenerator : IIncrementalGenerator
 
             if (attributes.TryGetValue(nameof(ArgAttribute), out var argAttribute) is false)
             {
-                arguments.Add(new PositionalArgumentModel(member, null, memberType, variableName, positionalIndex++));
+                arguments.Add(new PositionalArgumentModel(member, memberType, variableName, positionalIndex++));
                 continue;
             }
 
-            var help = argAttribute.NamedArguments.FirstOrDefault(a => a.Key is nameof(ArgAttribute.Help)).Value.Value;
-            var @short = argAttribute.NamedArguments.FirstOrDefault(a => a.Key is nameof(ArgAttribute.Short)).Value.Value;
-            var @long = argAttribute.NamedArguments.FirstOrDefault(a => a.Key is nameof(ArgAttribute.Long)).Value.Value;
-            var env = argAttribute.NamedArguments.FirstOrDefault(a => a.Key is nameof(ArgAttribute.Env)).Value.Value;
+            var argNamedArguments = argAttribute.NamedArguments
+                .ToDictionary(_ => _.Key, _ => _.Value.Value);
 
-            if (@short is not null || @long is not null)
-            {
-                arguments.Add(new NamedArgumentModel(
+            var @short = argNamedArguments.GetOrDefault(nameof(ArgAttribute.Short)) as char?;
+            var @long = argNamedArguments.GetOrDefault(nameof(ArgAttribute.Long)) as string;
+
+            ArgumentModel argument = @short is not null || @long is not null
+                ? new NamedArgumentModel(
                     member,
-                    argAttribute,
                     variableName,
-                    help as string,
-                    @short as char?,
-                    @long as string,
-                    env as string,
+                    Help: argNamedArguments.GetOrDefault(nameof(ArgAttribute.Help)) as string,
+                    Short: @short,
+                    Long: @long,
+                    Env: argNamedArguments.GetOrDefault(nameof(ArgAttribute.Env)) as string,
                     memberType
-                ));
-                continue;
-            }
+                )
+                : new PositionalArgumentModel(member, memberType, variableName, positionalIndex++);
 
-            arguments.Add(new PositionalArgumentModel(member, null, memberType, variableName, positionalIndex++));
+            arguments.Add(argument);
         }
 
-        var about = commandCandidateSymbol.GetDocumentationCommentXml();
-
-        if (typeDeclarationSyntax is StructDeclarationSyntax ss)
-        {
-            var attributeLists = ss.AttributeLists;
-        }
+        var namedArguments = commandAttribute.NamedArguments
+            .ToDictionary(_ => _.Key, _ => _.Value.Value);
 
         return new CommandModel(
             Kind: commandCandidateSymbol switch
             {
-                INamedTypeSymbol { TypeKind: TypeKind.Class } @class => @class.IsRecord ? "record" : "class",
-                INamedTypeSymbol { TypeKind: TypeKind.Struct } @struct => @struct.IsRecord ? "record struct" : "struct",
+                { TypeKind: TypeKind.Class } => commandCandidateSymbol.IsRecord ? "record" : "class",
+                { TypeKind: TypeKind.Struct } => commandCandidateSymbol.IsRecord ? "record struct" : "struct",
                 _ => "class"
             },
-            Name: commandAttribute.NamedArguments.FirstOrDefault(a => a.Key is nameof(CommandAttribute.Name)).Value.Value?.ToString() ?? commandCandidateSymbol.Name.ToSnakeCase(),
-            About: about,
-            LongAbout: commandAttribute.NamedArguments.FirstOrDefault(a => a.Key is nameof(CommandAttribute.LongAbout)).Value.Value?.ToString(),
-            Version: commandAttribute.NamedArguments.FirstOrDefault(a => a.Key is nameof(CommandAttribute.Version)).Value.Value?.ToString(),
-            Symbol: namedTypeSymbol,
+            Name: namedArguments.GetOrDefault(nameof(CommandAttribute.Name)) as string ??
+                  commandCandidateSymbol.Name.ToSnakeCase(),
+            About: namedArguments.GetOrDefault(nameof(CommandAttribute.About)) as string
+                   ?? (typeDeclarationSyntax is not null
+                       ? GetSummaryComment(typeDeclarationSyntax)
+                       : commandCandidateSymbol.GetDocumentationCommentXml()),
+            LongAbout: namedArguments.GetOrDefault(nameof(CommandAttribute.LongAbout)) as string,
+            Version: namedArguments.GetOrDefault(nameof(CommandAttribute.Version)) as string,
+            Symbol: commandCandidateSymbol,
             SubCommandArgumentModel: subCommandArgumentModel,
             Arguments: [.. arguments]
         );
@@ -239,161 +238,163 @@ public class ClapGenerator : IIncrementalGenerator
         ImmutableArray<SubCommandModel?> subCommandModels,
         string? assemblyVersion)
     {
-        var typeName = commandModel.Symbol.Name;
-        var fullName = commandModel.Symbol.ToDisplayString(TypeNameFormat);
-        var subCommand = commandModel.SubCommandArgumentModel is { } c
+        try
+        {
+            var typeName = commandModel.Symbol.Name;
+            var fullName = commandModel.Symbol.ToDisplayString(TypeNameFormat);
+            var subCommand = commandModel.SubCommandArgumentModel is { } c
                 ? FindSubCommand(c.MemberType, subCommandModels)
                 : null;
-        var subCommands = subCommand?.Commands ?? [];
-        var version = commandModel.Version ?? assemblyVersion;
 
-        var ns = commandModel.Symbol.ContainingNamespace.IsGlobalNamespace
-                    ? null
-                    : commandModel.Symbol.ContainingNamespace.ToDisplayString();
+            var version = commandModel.Version ?? assemblyVersion;
 
-        using var ms = new MemoryStream();
-        var writer = new Utf8IndentedWriter(ms);
+            var ns = commandModel.Symbol.ContainingNamespace.IsGlobalNamespace
+                ? null
+                : commandModel.Symbol.ContainingNamespace.ToDisplayString();
 
-        writer.WriteLine("#nullable enable");
-        writer.WriteLine();
+            using var ms = new MemoryStream();
+            var writer = new Utf8IndentedWriter(ms);
 
-        if (ns is not null)
-        {
-            writer.WriteLine($"namespace {ns};\n");
+            writer.WriteLine("#nullable enable");
             writer.WriteLine();
-        }
 
-        if (commandModel.Symbol.ContainingType is not null)
-        {
-            writer.WriteLine($"public partial class {commandModel.Symbol.ContainingType.Name}");
-            writer.WriteLine("{");
-            writer.IncreaseIndent();
-        }
-
-        writer.WriteLine($$"""
-                           public partial {{commandModel.Kind}} {{typeName}}
-                           {
-                           """);
-
-        writer.IncreaseIndent();
-
-        writer.WriteLine($"private const string HelpMessage = ");
-        writer.IncreaseIndent();
-        writer.WriteLine("\"\"\"");
-        writer.WriteLine(GenerateHelpMessage(commandModel, subCommand, version));
-        writer.WriteLine("\"\"\";");
-        writer.DecreaseIndent();
-        writer.WriteLine();
-
-        writer.WriteLine($$"""
-                           public static {{fullName}} Parse(System.ReadOnlySpan<string> args)
-                           {
-                           """);
-
-        writer.IncreaseIndent();
-
-        writer.WriteLine("""
-                         if (args.Length > 0 && args[0] is "-h" or "--help") 
-                         {
-                             PrintHelpMessage();
-                             System.Environment.Exit(0);
-                         }
-                         """);
-        writer.WriteLine();
-
-        if (version is not null)
-        {
-            writer.WriteLine($$"""
-                               if (args.Length > 0 && args[0] is "-v" or "--version")
-                               {
-                                   System.Console.WriteLine("{{version}}");
-                                   System.Environment.Exit(0);
-                               }
-                               """);
-            writer.WriteLine();
-        }
-
-        if (commandModel.Arguments.Length is 0)
-        {
-            writer.WriteLine($"return new {fullName}();");
-            writer.DecreaseAndWriteLine("}");
-            WriteHelperMethods(writer);
-            writer.DecreaseAndWriteLine("}");
+            if (ns is not null)
+            {
+                writer.WriteLine($"namespace {ns};\n");
+                writer.WriteLine();
+            }
 
             if (commandModel.Symbol.ContainingType is not null)
-                writer.DecreaseAndWriteLine("}");
+            {
+                writer.WriteLine($"public partial class {commandModel.Symbol.ContainingType.Name}");
+                writer.WriteLine("{");
+                writer.IncreaseIndent();
+            }
 
-            return Encoding.UTF8.GetString(ms.ToArray());
-        }
+            writer.WriteLine($$"""
+                               public partial {{commandModel.Kind}} {{typeName}}
+                               {
+                               """);
 
-        foreach (var arg in commandModel.Arguments.OfType<NamedArgumentModel>())
-        {
-            var type = arg.MemberType.ToDisplayString(TypeNameFormat);
-            var initialValue = GetDefaultValueString(arg.MemberType);
-            var defaultValue = arg.Env is { } env
-                ? $"Environment.GetEnvironmentVariable(\"{env}\") is {{ }} env ? {GetArgConversion(arg.MemberType, "env")} : {initialValue}"
-                : initialValue;
-
-            writer.WriteLine($"// Argument '{arg.Symbol.Name}' is a named argument");
-            writer.WriteLine($"{type} {arg.VariableName} = {defaultValue};");
-        }
-
-        foreach (var arg in commandModel.Arguments.OfType<PositionalArgumentModel>())
-        {
-            var type = arg.MemberType.ToDisplayString(TypeNameFormat);
-            var defaultValue = GetDefaultValueString(arg.MemberType);
-
-            writer.WriteLine($"// Argument '{arg.Symbol.Name}' is positional argument at index {arg.Index}");
-            writer.WriteLine($"{type} {arg.VariableName} = {defaultValue};");
-        }
-
-        writer.WriteLine();
-
-        var positionalArgs = commandModel.Arguments.OfType<PositionalArgumentModel>().ToArray();
-        if (positionalArgs.Length > 0) writer.WriteLine("var positionalIndex = 0;");
-        var lastIndex = positionalArgs.Length > 0 ? positionalArgs.Max(a => a.Index) : -1;
-
-        writer.WriteLine("""
-                         var index = 0;
-                         while (index < args.Length)
-                         {
-                             switch (args[index])
-                             {
-                         """);
-
-        writer.IncreaseIndent(by: 2);
-
-        if (subCommand is not null)
-        {
-            writer.WriteLine($"// Setting subcommand '{subCommand.Symbol.ToDisplayString()}'");
-            writer.WriteLine("// Command switching swallows the rest of the arguments but previously");
-            writer.WriteLine("// parsed arguments still get applied to the model");
-
-            var names = new string[subCommand.Commands.Length];
-            for (var i = 0; i < subCommand.Commands.Length; i++)
-                names[i] = $"\"{subCommand.Commands[i].Name}\"";
-
-            writer.WriteLine($"case {string.Join(" or ", names)}:");
             writer.IncreaseIndent();
-            writer.WriteLine($"return new {fullName}");
-            writer.WriteLine('{');
+
+            writer.WriteLine($"private const string HelpMessage = ");
             writer.IncreaseIndent();
-            writer.WriteLine($"{commandModel.SubCommandArgumentModel!.Symbol.Name} = {subCommand.Symbol.ToDisplayString(TypeNameFormat)}.Resolve(args[index..]),");
-
-            foreach (var arg in commandModel.Arguments)
-                writer.WriteLine($"{arg.Symbol.Name} = {arg.VariableName},");
-
-            writer.DecreaseIndent();
-            writer.WriteLine("};");
+            writer.WriteLine("\"\"\"");
+            writer.WriteLine(GenerateHelpMessage(commandModel, subCommand));
+            writer.WriteLine("\"\"\";");
             writer.DecreaseIndent();
             writer.WriteLine();
-        }
 
-        foreach (var argument in commandModel.Arguments)
-        {
-            switch (argument)
+            writer.WriteLine($$"""
+                               public static {{fullName}} Parse(System.ReadOnlySpan<string> args)
+                               {
+                               """);
+
+            writer.IncreaseIndent();
+
+            writer.WriteLine("""
+                             if (args.Length > 0 && args[0] is "-h" or "--help") 
+                             {
+                                 PrintHelpMessage();
+                                 System.Environment.Exit(0);
+                             }
+                             """);
+            writer.WriteLine();
+
+            if (version is not null)
             {
-                case NamedArgumentModel value:
+                writer.WriteLine($$"""
+                                   if (args.Length > 0 && args[0] is "-v" or "--version")
+                                   {
+                                       System.Console.WriteLine("{{version}}");
+                                       System.Environment.Exit(0);
+                                   }
+                                   """);
+                writer.WriteLine();
+            }
+
+            if (commandModel.Arguments.Length is 0)
+            {
+                writer.WriteLine($"return new {fullName}();");
+                writer.DecreaseAndWriteLine("}");
+                WriteHelperMethods(writer);
+                writer.DecreaseAndWriteLine("}");
+
+                if (commandModel.Symbol.ContainingType is not null)
+                    writer.DecreaseAndWriteLine("}");
+
+                return Encoding.UTF8.GetString(ms.ToArray());
+            }
+
+            foreach (var arg in commandModel.Arguments.OfType<NamedArgumentModel>())
+            {
+                var type = arg.MemberType.ToDisplayString(TypeNameFormat);
+                var initialValue = GetDefaultValueString(arg.MemberType);
+                var defaultValue = arg.Env is { } env
+                    ? $"Environment.GetEnvironmentVariable(\"{env}\") is {{ }} env ? {GetArgConversion(arg.MemberType, "env")} : {initialValue}"
+                    : initialValue;
+
+                writer.WriteLine($"// Argument '{arg.Symbol.Name}' is a named argument");
+                writer.WriteLine($"{type} {arg.VariableName} = {defaultValue};");
+            }
+
+            foreach (var arg in commandModel.Arguments.OfType<PositionalArgumentModel>())
+            {
+                var type = arg.MemberType.ToDisplayString(TypeNameFormat);
+                var defaultValue = GetDefaultValueString(arg.MemberType);
+
+                writer.WriteLine($"// Argument '{arg.Symbol.Name}' is positional argument at index {arg.Index}");
+                writer.WriteLine($"{type} {arg.VariableName} = {defaultValue};");
+            }
+
+            writer.WriteLine();
+
+            var positionalArgs = commandModel.Arguments.OfType<PositionalArgumentModel>().ToArray();
+            if (positionalArgs.Length > 0) writer.WriteLine("var positionalIndex = 0;");
+
+            writer.WriteLine("""
+                             var index = 0;
+                             while (index < args.Length)
+                             {
+                                 switch (args[index])
+                                 {
+                             """);
+
+            writer.IncreaseIndent(by: 2);
+
+            if (subCommand is not null)
+            {
+                writer.WriteLine($"// Setting subcommand '{subCommand.Symbol.ToDisplayString()}'");
+                writer.WriteLine("// Command switching swallows the rest of the arguments but previously");
+                writer.WriteLine("// parsed arguments still get applied to the model");
+
+                var names = new string[subCommand.Commands.Length];
+                for (var i = 0; i < subCommand.Commands.Length; i++)
+                    names[i] = $"\"{subCommand.Commands[i].Name}\"";
+
+                writer.WriteLine($"case {string.Join(" or ", names)}:");
+                writer.IncreaseIndent();
+                writer.WriteLine($"return new {fullName}");
+                writer.WriteLine('{');
+                writer.IncreaseIndent();
+                writer.WriteLine(
+                    $"{commandModel.SubCommandArgumentModel!.Symbol.Name} = {subCommand.Symbol.ToDisplayString(TypeNameFormat)}.Resolve(args[index..]),");
+
+                foreach (var arg in commandModel.Arguments)
+                    writer.WriteLine($"{arg.Symbol.Name} = {arg.VariableName},");
+
+                writer.DecreaseIndent();
+                writer.WriteLine("};");
+                writer.DecreaseIndent();
+                writer.WriteLine();
+            }
+
+            foreach (var argument in commandModel.Arguments)
+            {
+                switch (argument)
+                {
+                    case NamedArgumentModel value:
                     {
                         var name = value switch
                         {
@@ -416,10 +417,11 @@ public class ClapGenerator : IIncrementalGenerator
                         break;
                     }
 
-                case PositionalArgumentModel positional:
+                    case PositionalArgumentModel positional:
                     {
                         writer.WriteLine($"// Setting attribute '{fullName}.{positional.Symbol.Name}'");
-                        writer.WriteLine($"case var arg when !arg.StartsWith('-') && positionalIndex is {positional.Index}:");
+                        writer.WriteLine(
+                            $"case var arg when !arg.StartsWith('-') && positionalIndex is {positional.Index}:");
                         writer.WriteLine("{");
                         writer.IncreaseIndent();
                         SetPositionalValue(writer, positional);
@@ -430,102 +432,108 @@ public class ClapGenerator : IIncrementalGenerator
                         writer.WriteLine();
                         break;
                     }
+                }
             }
-        }
-
-        writer.WriteLine("""
-                         case var arg:
-                             DisplayError($"Unknown argument '{arg}'");
-                             break;
-                         """);
-
-
-        writer.DecreaseAndWriteLine("}");
-        writer.WriteLine();
-        writer.DecreaseAndWriteLine("}");
-
-        writer.WriteLine();
-
-        if (commandModel.SubCommandArgumentModel is { MemberType.NullableAnnotation: not NullableAnnotation.Annotated } reqCommand)
-        {
-            writer.WriteLine($"""
-                              DisplayError("SubCommand '{reqCommand.Name}' is required");
-                              return default!;
-                              """);
-        }
-        else
-        {
 
             writer.WriteLine("""
-                             
+                             case var arg:
+                                 DisplayError($"Unknown argument '{arg}'");
+                                 break;
                              """);
 
-            var requiredArguments = commandModel.Arguments
-                .OfType<PositionalArgumentModel>()
-                .Where(a => a.Required || a.MemberType.NullableAnnotation is not NullableAnnotation.Annotated)
-                .ToArray();
 
-            if (requiredArguments.Length > 0)
-            {
-                writer.WriteLine($$"""
-                                if ({{string.Join(" || ", requiredArguments.Select(a => $"{a.VariableName} == default"))}})
-                                {
-                                    var sb = new System.Text.StringBuilder();
-                                """);
-                writer.IncreaseIndent();
-
-                foreach (var requiredArg in requiredArguments)
-                {
-                    switch (requiredArg)
-                    {
-                        case IArrayTypeSymbol arrayTypeSymbol:
-                            {
-                                writer.WriteLine($$"""
-                                            if ({{requiredArg.VariableName}}.Length is 0)
-                                                sb.AppendLine("  <{{requiredArg.Symbol.Name}}>");
-                                            """);
-                                break;
-                            }
-
-                        default:
-                            {
-                                writer.WriteLine($$"""
-                                            if ({{requiredArg.VariableName}} == default)
-                                                sb.AppendLine("  <{{requiredArg.Symbol.Name}}>");
-                                            """);
-                                break;
-                            }
-                    }
-                }
-
-                writer.WriteLine(@"DisplayError($""The following required arguments were not provided:\n{sb.ToString()}"");");
-                writer.DecreaseIndent();
-                writer.WriteLine("}");
-            }
-
+            writer.DecreaseAndWriteLine("}");
             writer.WriteLine();
-            writer.WriteLine($"return new {fullName}");
-            writer.WriteLine('{');
-            writer.IncreaseIndent();
-
-            foreach (var arg in commandModel.Arguments)
-            {
-                var variableName = GetVariableName(arg.Symbol.Name.ToCamelCase());
-                writer.WriteLine($"{arg.Symbol.Name} = {variableName},");
-            }
-
-            writer.DecreaseIndent();
-            writer.WriteLine("};");
-        }
-
-        writer.DecreaseAndWriteLine("}"); // This closes the Parse method
-        WriteHelperMethods(writer);
-        writer.DecreaseAndWriteLine("}"); // This closes the Class/Struct body
-
-        if (commandModel.Symbol.ContainingType is not null)
             writer.DecreaseAndWriteLine("}");
 
-        return Encoding.UTF8.GetString(ms.ToArray());
+            writer.WriteLine();
+
+            if (commandModel.SubCommandArgumentModel is
+                { MemberType.NullableAnnotation: not NullableAnnotation.Annotated } reqCommand)
+            {
+                writer.WriteLine($"""
+                                  DisplayError("SubCommand '{reqCommand.Name}' is required");
+                                  return default!;
+                                  """);
+            }
+            else
+            {
+                writer.WriteLine("""
+
+                                 """);
+
+                var requiredArguments = commandModel.Arguments
+                    .OfType<PositionalArgumentModel>()
+                    .Where(a => a.Required || a.MemberType.NullableAnnotation is not NullableAnnotation.Annotated)
+                    .ToArray();
+
+                if (requiredArguments.Length > 0)
+                {
+                    writer.WriteLine($$"""
+                                       if ({{string.Join(" || ", requiredArguments.Select(a => $"{a.VariableName} == default"))}})
+                                       {
+                                           var sb = new System.Text.StringBuilder();
+                                       """);
+                    writer.IncreaseIndent();
+
+                    foreach (var requiredArg in requiredArguments)
+                    {
+                        switch (requiredArg.Symbol)
+                        {
+                            case IArrayTypeSymbol:
+                            {
+                                writer.WriteLine($"""
+                                                  if ({requiredArg.VariableName}.Length is 0)
+                                                      sb.AppendLine("  <{requiredArg.Symbol.Name}>");
+                                                  """);
+                                break;
+                            }
+
+                            default:
+                            {
+                                writer.WriteLine($"""
+                                                  if ({requiredArg.VariableName} == default)
+                                                      sb.AppendLine("  <{requiredArg.Symbol.Name}>");
+                                                  """);
+                                break;
+                            }
+                        }
+                    }
+
+                    writer.WriteLine(
+                        @"DisplayError($""The following required arguments were not provided:\n{sb.ToString()}"");");
+                    writer.DecreaseIndent();
+                    writer.WriteLine("}");
+                }
+
+                writer.WriteLine();
+                writer.WriteLine($"return new {fullName}");
+                writer.WriteLine('{');
+                writer.IncreaseIndent();
+
+                foreach (var arg in commandModel.Arguments)
+                {
+                    var variableName = GetVariableName(arg.Symbol.Name.ToCamelCase());
+                    writer.WriteLine($"{arg.Symbol.Name} = {variableName},");
+                }
+
+                writer.DecreaseIndent();
+                writer.WriteLine("};");
+            }
+
+            writer.DecreaseAndWriteLine("}"); // This closes the Parse method
+            WriteHelperMethods(writer);
+            writer.DecreaseAndWriteLine("}"); // This closes the Class/Struct body
+
+            if (commandModel.Symbol.ContainingType is not null)
+                writer.DecreaseAndWriteLine("}");
+
+            return Encoding.UTF8.GetString(ms.ToArray());
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"It happened while generating the source code: {ex.StackTrace}", ex);
+        }
     }
 
     private static string GenerateSubCommandParseMethod(SubCommandModel subCommandModel)
@@ -534,8 +542,8 @@ public class ClapGenerator : IIncrementalGenerator
         var typeName = symbol.Name;
         var fullName = symbol.ToDisplayString(TypeNameFormat);
         var ns = symbol.ContainingNamespace.IsGlobalNamespace
-                    ? null
-                    : symbol.ContainingNamespace.ToDisplayString();
+            ? null
+            : symbol.ContainingNamespace.ToDisplayString();
 
         using var ms = new MemoryStream();
         var writer = new Utf8IndentedWriter(ms);
@@ -565,9 +573,10 @@ public class ClapGenerator : IIncrementalGenerator
         foreach (var command in commands)
         {
             var name = command.Symbol.GetAttributes()
-                .First(attr => attr.AttributeClass?.Name is nameof(CommandAttribute))
-                .NamedArguments.FirstOrDefault(a => a.Key is nameof(CommandAttribute.Name)).Value.Value?.ToString()
-                ?? command.Symbol.Name.ToSnakeCase();
+                           .First(attr => attr.AttributeClass?.Name is nameof(CommandAttribute))
+                           .NamedArguments.FirstOrDefault(a => a.Key is nameof(CommandAttribute.Name)).Value.Value
+                           ?.ToString()
+                       ?? command.Symbol.Name.ToSnakeCase();
 
             var commandFullName = command.Symbol.ToDisplayString(TypeNameFormat);
             writer.WriteLine($"\"{name}\" => {commandFullName}.Parse(args[1..]),");
@@ -592,9 +601,9 @@ public class ClapGenerator : IIncrementalGenerator
         }
 
         writer.WriteLine($"""
-                         {argument.VariableName} = {GetArgConversion(argument.MemberType)};
-                         index++;
-                         """);
+                          {argument.VariableName} = {GetArgConversion(argument.MemberType)};
+                          index++;
+                          """);
     }
 
     private static void SetNamedArgumentValue(Utf8IndentedWriter writer, NamedArgumentModel argument)
@@ -610,7 +619,7 @@ public class ClapGenerator : IIncrementalGenerator
                                    index++;
                                    break;
                                }
-          
+
                                // If a value is not given then we should treat this has a positive flag
                                {{argument.VariableName}} = true;
                                """);
@@ -625,47 +634,79 @@ public class ClapGenerator : IIncrementalGenerator
         }
 
         writer.WriteLine($"""
-                         {argument.VariableName} = {GetArgConversion(argument.MemberType)};
-                         index++;
-                         """);
+                          {argument.VariableName} = {GetArgConversion(argument.MemberType)};
+                          index++;
+                          """);
     }
 
     private static void WriteArraySetter(Utf8IndentedWriter writer, string variableName, ITypeSymbol elementType)
     {
         var childType = elementType.ToDisplayString(TypeNameFormat);
         writer.WriteLine($$"""
-                               var builder = System.Collections.Immutable.ImmutableArray.CreateBuilder<{{childType}}>();
-                               while (index < args.Length && !args[index].StartsWith('-')) 
-                               {
-                                   builder.Add({{GetArgConversion(elementType)}});
-                                   index++;
-                               }
-                               {{variableName}} = builder.ToArray();
-                               """);
+                           var builder = System.Collections.Immutable.ImmutableArray.CreateBuilder<{{childType}}>();
+                           while (index < args.Length && !args[index].StartsWith('-')) 
+                           {
+                               builder.Add({{GetArgConversion(elementType)}});
+                               index++;
+                           }
+                           {{variableName}} = builder.ToArray();
+                           """);
     }
 
-    private static string? GetArgConversion(ITypeSymbol member, string variableName = "args[index]")
+    private static string GetArgConversion(ITypeSymbol member, string variableName = "args[index]")
     {
         var nullable = member.NullableAnnotation is NullableAnnotation.Annotated;
         return member.ToDisplayString(TypeNameFormat).TrimEnd('?') switch
         {
             "System.String" => variableName,
-            "System.Int32" => nullable ? $"int.TryParse({variableName}, out var v) ? v : null" : $"int.Parse({variableName})",
-            "System.Int64" => nullable ? $"long.TryParse({variableName}, out var v) ? v : null" : $"long.Parse({variableName})",
-            "System.Single" => nullable ? $"float.TryParse({variableName}, out var v) ? v : null" : $"float.Parse({variableName})",
-            "System.Double" => nullable ? $"double.TryParse({variableName}, out var v) ? v : null" : $"double.Parse({variableName})",
-            "System.Decimal" => nullable ? $"decimal.TryParse({variableName}, out var v) ? v : null" : $"decimal.Parse({variableName})",
-            "System.Boolean" => nullable ? $"bool.TryParse({variableName}, out var v) ? v : null" : $"bool.Parse({variableName})",
-            "System.Byte" => nullable ? $"byte.TryParse({variableName}, out var v) ? v : null" : $"byte.Parse({variableName})",
-            "System.SByte" => nullable ? $"sbyte.TryParse({variableName}, out var v) ? v : null" : $"sbyte.Parse({variableName})",
-            "System.Int16" => nullable ? $"short.TryParse({variableName}, out var v) ? v : null" : $"short.Parse({variableName})",
-            "System.UInt16" => nullable ? $"ushort.TryParse({variableName}, out var v) ? v : null" : $"ushort.Parse({variableName})",
-            "System.UInt32" => nullable ? $"uint.TryParse({variableName}, out var v) ? v : null" : $"uint.Parse({variableName})",
-            "System.UInt64" => nullable ? $"ulong.TryParse({variableName}, out var v) ? v : null" : $"ulong.Parse({variableName})",
-            "System.Char" => nullable ? $"char.TryParse({variableName}, out var v) ? v : null" : $"char.Parse({variableName})",
-            "System.DateTime" => nullable ? $"DateTime.TryParse({variableName}, out var v) ? v : null" : $"DateTime.Parse({variableName})",
-            "System.TimeSpan" => nullable ? $"TimeSpan.TryParse({variableName}, out var v) ? v : null" : $"TimeSpan.Parse({variableName})",
-            "System.Guid" => nullable ? $"Guid.TryParse({variableName}, out var v) ? v : null" : $"Guid.Parse({variableName})",
+            "System.Int32" => nullable
+                ? $"int.TryParse({variableName}, out var v) ? v : null"
+                : $"int.Parse({variableName})",
+            "System.Int64" => nullable
+                ? $"long.TryParse({variableName}, out var v) ? v : null"
+                : $"long.Parse({variableName})",
+            "System.Single" => nullable
+                ? $"float.TryParse({variableName}, out var v) ? v : null"
+                : $"float.Parse({variableName})",
+            "System.Double" => nullable
+                ? $"double.TryParse({variableName}, out var v) ? v : null"
+                : $"double.Parse({variableName})",
+            "System.Decimal" => nullable
+                ? $"decimal.TryParse({variableName}, out var v) ? v : null"
+                : $"decimal.Parse({variableName})",
+            "System.Boolean" => nullable
+                ? $"bool.TryParse({variableName}, out var v) ? v : null"
+                : $"bool.Parse({variableName})",
+            "System.Byte" => nullable
+                ? $"byte.TryParse({variableName}, out var v) ? v : null"
+                : $"byte.Parse({variableName})",
+            "System.SByte" => nullable
+                ? $"sbyte.TryParse({variableName}, out var v) ? v : null"
+                : $"sbyte.Parse({variableName})",
+            "System.Int16" => nullable
+                ? $"short.TryParse({variableName}, out var v) ? v : null"
+                : $"short.Parse({variableName})",
+            "System.UInt16" => nullable
+                ? $"ushort.TryParse({variableName}, out var v) ? v : null"
+                : $"ushort.Parse({variableName})",
+            "System.UInt32" => nullable
+                ? $"uint.TryParse({variableName}, out var v) ? v : null"
+                : $"uint.Parse({variableName})",
+            "System.UInt64" => nullable
+                ? $"ulong.TryParse({variableName}, out var v) ? v : null"
+                : $"ulong.Parse({variableName})",
+            "System.Char" => nullable
+                ? $"char.TryParse({variableName}, out var v) ? v : null"
+                : $"char.Parse({variableName})",
+            "System.DateTime" => nullable
+                ? $"DateTime.TryParse({variableName}, out var v) ? v : null"
+                : $"DateTime.Parse({variableName})",
+            "System.TimeSpan" => nullable
+                ? $"TimeSpan.TryParse({variableName}, out var v) ? v : null"
+                : $"TimeSpan.Parse({variableName})",
+            "System.Guid" => nullable
+                ? $"Guid.TryParse({variableName}, out var v) ? v : null"
+                : $"Guid.Parse({variableName})",
             var other => $"Convert.ChangeType({variableName}, typeof({(nullable ? $"{other}?" : other)}))"
         };
     }
@@ -689,20 +730,23 @@ public class ClapGenerator : IIncrementalGenerator
         _ => "default!"
     };
 
-    private static SubCommandModel? FindSubCommand(ITypeSymbol member, ImmutableArray<SubCommandModel?> subCommandModels)
+    private static SubCommandModel? FindSubCommand(ITypeSymbol member,
+        ImmutableArray<SubCommandModel?> subCommandModels)
     {
         var memberType = member.ToDisplayString(TypeNameFormat).TrimEnd('?');
-        return subCommandModels.FirstOrDefault(sc => memberType == sc?.Symbol.ToDisplayString(TypeNameFormat).TrimEnd('?'));
+        return subCommandModels.FirstOrDefault(sc =>
+            memberType == sc?.Symbol.ToDisplayString(TypeNameFormat).TrimEnd('?'));
     }
 
-    private static string GenerateHelpMessage(CommandModel commandModel, SubCommandModel? subCommand, string? version)
+    private static string GenerateHelpMessage(CommandModel commandModel, SubCommandModel? subCommand)
     {
-        var commandName = commandModel.Name;
         var sb = new StringBuilder();
 
-
-        sb.AppendLine($"About {commandModel.About!.Trim()}");
-        sb.AppendLine();
+        if (!string.IsNullOrEmpty(commandModel.About))
+        {
+            sb.AppendLine(commandModel.About!.Trim());
+            sb.AppendLine();
+        }
 
         if (!string.IsNullOrEmpty(commandModel.LongAbout))
         {
@@ -786,34 +830,56 @@ public class ClapGenerator : IIncrementalGenerator
                          """);
     }
 
-    private static string? GetDocComment(TypeDeclarationSyntax syntax)
+    private static string? GetSummaryComment(SyntaxNode node)
     {
-        var leadingTrivia = syntax.GetLeadingTrivia();
-
-        var docCommentTrivia = leadingTrivia
-            .Select(trivia => trivia.GetStructure())
-            .OfType<DocumentationCommentTriviaSyntax>()
-            .FirstOrDefault();
-
-        if (docCommentTrivia == null)
-            return null;
-
-        var summary = docCommentTrivia.Content
-            .OfType<XmlElementSyntax>()
-            .FirstOrDefault(e => e.StartTag.Name.ToString() == "summary");
-
-        if (summary is null)
-            return null;
-
-        var content = string.Concat(summary.Content
-            .OfType<XmlTextSyntax>()
-            .SelectMany(t => t.TextTokens)
-            .Select(t => t.Text)).Trim();
-
-        return RemoveInvalidCharacters(content.AsSpan());
+        var commentText = ExtractSummary(node.ToFullString().AsSpan());
+        return commentText is null ? null : RemoveInvalidCharacters(commentText.AsSpan());
     }
 
     private static readonly char[] AllowedCharacters = [' ', '\t', '\n', '\r', '&'];
+
+    private static string? ExtractSummary(ReadOnlySpan<char> source)
+    {
+        const string summaryStartTag = "<summary>";
+        const string summaryEndTag = "</summary>";
+
+        var start = source.IndexOf(summaryStartTag.AsSpan());
+        var end = source.IndexOf(summaryEndTag.AsSpan());
+
+        if (start == -1 || end == -1 || end < start)
+            return null;
+
+        // Slice between <summary> and </summary>
+        start += summaryStartTag.Length;
+        var contentSpan = source.Slice(start, end - start);
+
+        var lines = new List<string>();
+        while (!contentSpan.IsEmpty)
+        {
+            var newLineIndex = contentSpan.IndexOf('\n');
+            ReadOnlySpan<char> line;
+
+            if (newLineIndex >= 0)
+            {
+                line = contentSpan.Slice(0, newLineIndex);
+                contentSpan = contentSpan.Slice(newLineIndex + 1);
+            }
+            else
+            {
+                line = contentSpan;
+                contentSpan = ReadOnlySpan<char>.Empty;
+            }
+
+            if (line.StartsWith("///".AsSpan()))
+                line = line.Slice(3);
+
+            var trimmed = line.ToString().Trim();
+            lines.Add(trimmed);
+        }
+
+        return string.Join("\n", lines).Trim();
+    }
+
 
     private static string RemoveInvalidCharacters(ReadOnlySpan<char> source)
     {
