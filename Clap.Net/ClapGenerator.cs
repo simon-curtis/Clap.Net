@@ -91,17 +91,17 @@ public class ClapGenerator : IIncrementalGenerator
 
                     var commands = new List<CommandModel>();
                     var namedTypeSymbol = (INamedTypeSymbol)symbol;
-                    foreach (var nestedType in namedTypeSymbol.GetTypeMembers())
+                    foreach (var nestedTypeSymbol in namedTypeSymbol.GetTypeMembers())
                     {
-                        if (nestedType.DeclaredAccessibility != Accessibility.Public)
+                        if (nestedTypeSymbol.DeclaredAccessibility != Accessibility.Public)
                             continue;
 
                         // get the syntax of the nested symbol
-                        var nestedTypeDeclarationSyntax = nestedType.DeclaringSyntaxReferences
+                        var typeDeclarationSyntax = nestedTypeSymbol.DeclaringSyntaxReferences
                             .OfType<TypeDeclarationSyntax>()
                             .FirstOrDefault();
 
-                        if (GetCommandModel(nestedTypeDeclarationSyntax, nestedType) is { } model)
+                        if (GetCommandModel(typeDeclarationSyntax, nestedTypeSymbol) is { } model)
                             commands.Add(model);
                     }
 
@@ -210,11 +210,12 @@ public class ClapGenerator : IIncrementalGenerator
             arguments.Add(new PositionalArgumentModel(member, null, memberType, variableName, positionalIndex++));
         }
 
-        // About is formed by getting the About value first, then checking if there is a comment above it
-        var about = commandAttribute.NamedArguments.FirstOrDefault(a => a.Key is nameof(CommandAttribute.About)).Value.Value?.ToString()
-                    ?? (typeDeclarationSyntax is not null
-                        ? GetDocComment(typeDeclarationSyntax)
-                        : null);
+        var about = commandCandidateSymbol.GetDocumentationCommentXml();
+
+        if (typeDeclarationSyntax is StructDeclarationSyntax ss)
+        {
+            var attributeLists = ss.AttributeLists;
+        }
 
         return new CommandModel(
             Kind: commandCandidateSymbol switch
@@ -233,7 +234,10 @@ public class ClapGenerator : IIncrementalGenerator
         );
     }
 
-    private static string GenerateCommandParseMethod(CommandModel commandModel, ImmutableArray<SubCommandModel?> subCommandModels, string? assemblyVersion)
+    private static string GenerateCommandParseMethod(
+        CommandModel commandModel,
+        ImmutableArray<SubCommandModel?> subCommandModels,
+        string? assemblyVersion)
     {
         var typeName = commandModel.Symbol.Name;
         var fullName = commandModel.Symbol.ToDisplayString(TypeNameFormat);
@@ -696,11 +700,9 @@ public class ClapGenerator : IIncrementalGenerator
         var commandName = commandModel.Name;
         var sb = new StringBuilder();
 
-        if (!string.IsNullOrEmpty(commandModel.About))
-        {
-            sb.AppendLine(commandModel.About!.Trim());
-            sb.AppendLine();
-        }
+
+        sb.AppendLine($"About {commandModel.About!.Trim()}");
+        sb.AppendLine();
 
         if (!string.IsNullOrEmpty(commandModel.LongAbout))
         {
