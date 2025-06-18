@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Clap.Net", "Clap.Net\Clap.N
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Clap.TestConsole", "Clap.TestConsole\Clap.TestConsole.csproj", "{E3351B3D-AD6B-4F42-B203-F5C60A4BB21A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Clap.Net.Tests", "Clap.Net.Tests\Clap.Net.Tests.csproj", "{FD1932FB-9F1D-434A-853B-DC5DA62952F1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -24,5 +26,9 @@ Global
 		{E3351B3D-AD6B-4F42-B203-F5C60A4BB21A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E3351B3D-AD6B-4F42-B203-F5C60A4BB21A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E3351B3D-AD6B-4F42-B203-F5C60A4BB21A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FD1932FB-9F1D-434A-853B-DC5DA62952F1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FD1932FB-9F1D-434A-853B-DC5DA62952F1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FD1932FB-9F1D-434A-853B-DC5DA62952F1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FD1932FB-9F1D-434A-853B-DC5DA62952F1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
