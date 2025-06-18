@@ -2,7 +2,7 @@
 namespace Clap.Net;
 
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Property | AttributeTargets.Field, Inherited = false)]
-public sealed class CommandAttribute : Attribute
+public sealed class CommandAttribute() : Attribute
 {
     /// <summary>
     /// package name (if on Parser container), variant name (if on Subcommand variant)
@@ -73,6 +73,16 @@ public sealed class CommandAttribute : Attribute
     /// <summary>
     /// Nest subcommands under the current set of subcommands (must implement Subcommand)
     /// </summary>
-    public bool Subcommand { get; init; }
+    public Traits Traits { get; init; }
+
+    public CommandAttribute(Traits traits) : this()
+    {
+        Traits = traits;
+    }
 }
 
+[Flags]
+public enum Traits
+{
+    Subcommand
+}
