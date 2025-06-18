@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net9.0</TargetFramework>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="TUnit" Version="0.25.21" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Clap.Net\Clap.Net.csproj" OutputItemType="Analyzer"/>
+    </ItemGroup>
+
+</Project>
