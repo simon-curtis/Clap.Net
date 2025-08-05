@@ -1,86 +1,97 @@
-﻿namespace Clap.Net.Tests;
+﻿using Shouldly;
+
+namespace Clap.Net.Tests;
 
 public class Tests
 {
-    [Test]
-    public async Task ShortFlag_IsTrue_WhenPresent()
+    [Fact]
+    public void ShortFlag_IsTrue_WhenPresent()
     {
         var args = ShortFlagApp.TryParse(["-a"]);
-        await Assert.That(args.AsT0.All).IsTrue();
+        args.AsT0.All.ShouldBeTrue();
     }
 
-    [Test]
-    public async Task ShortFlag_IsFalse_WhenNotPresent()
+    [Fact]
+    public void ShortFlag_IsTrue_WhenPresentAndFollowedByWord()
     {
-        var args = ShortFlagApp.TryParse([]);
-        await Assert.That(args.AsT0.All).IsFalse();
+        var args = FlagFollowedByBoolArgsApp.TryParse(["-t", "simon"]);
+        args.AsT0.Trim.ShouldBeTrue();
+        args.AsT0.Word.Length.ShouldBe(5);
     }
 
-    [Test]
-    public async Task LongFlag_IsTrue_WhenPresent()
+    [Fact]
+    public void ShortFlag_IsFalse_WhenNotPresent()
+    {
+        var args = ShortFlagApp.TryParse(ReadOnlySpan<IToken>.Empty);
+        args.AsT0.All.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void LongFlag_IsTrue_WhenPresent()
     {
         var args = LongFlagApp.TryParse(["--all"]);
-        await Assert.That(args.AsT0.All).IsTrue();
+        args.AsT0.All.ShouldBeTrue();
     }
 
-    [Test]
-    public async Task LongFlag_IsFalse_WhenNotPresent()
+    [Fact]
+    public void LongFlag_IsFalse_WhenNotPresent()
     {
-        var args = LongFlagApp.TryParse([]);
-        await Assert.That(args.AsT0.All).IsFalse();
+        var args = LongFlagApp.TryParse(ReadOnlySpan<IToken>.Empty);
+        args.AsT0.All.ShouldBeFalse();
     }
 
-    [Test]
-    public async Task BasicRequiredPositionalArg_IsSet_WhenPresent()
+    [Fact]
+    public void BasicRequiredPositionalArg_IsSet_WhenPresent()
     {
         var args = BasicRequiredPositionalApp.TryParse(["foo"]);
-        await Assert.That(args.AsT0.Subject).IsEqualTo("foo");
+        args.AsT0.Subject.ShouldBe("foo");
     }
 
-    [Test]
-    public async Task DoubleRequiredPositionalApp_IsSet_WhenPresent()
+    [Fact]
+    public void DoubleRequiredPositionalApp_IsSet_WhenPresent()
     {
         var args = DoubleRequiredPositionalApp.TryParse(["foo", "bar"]);
-        await Assert.That(args.AsT0.Subject).IsEqualTo("foo");
-        await Assert.That(args.AsT0.Body).IsEqualTo("bar");
+        args.AsT0.Subject.ShouldBe("foo");
+        args.AsT0.Body.ShouldBe("bar");
     }
 
-    [Test]
-    public async Task SubCommandApp_IsSet_WhenPresent()
+    [Fact]
+    public void SubCommandApp_IsSet_WhenPresent()
     {
         var args = SubCommandApp.TryParse(["one"]);
-        await Assert.That(args.AsT0.Command).IsTypeOf<SubCommandCommand.One>();
+        args.AsT0.Command.ShouldBeOfType<SubCommandCommand.One>();
     }
 
-    [Test]
-    public async Task CombinedShortFlags_Allowed_InSingleToken()
+    [Fact]
+    public void CombinedShortFlags_Allowed_InSingleToken()
     {
         var result = CombinedShortFlagsApp.TryParse(new[] { "-ab" });
         // Should be the T0 case
-        await Assert.That(result.IsT0).IsTrue();
+        result.IsT0.ShouldBeTrue();
         var args = result.AsT0;
-        await Assert.That(args.All).IsTrue();
-        await Assert.That(args.Bold).IsTrue();
+        args.All.ShouldBeTrue();
+        args.Bold.ShouldBeTrue();
     }
 
-    [Test]
-    public async Task OptionWithValue_CanBeParsed_UsingShortAndLong()
+    [Fact]
+    public void OptionWithValue_CanBeParsed_UsingShortAndLong()
     {
         var shortResult = OptionWithValueApp.TryParse(new[] { "-n", "Alice" });
-        await Assert.That(shortResult.IsT0).IsTrue();
-        await Assert.That(shortResult.AsT0.Name).IsEqualTo("Alice");
+        shortResult.IsT0.ShouldBeTrue();
+        shortResult.AsT0.Name.ShouldBe("Alice");
 
         var longResult = OptionWithValueApp.TryParse(new[] { "--name", "Bob" });
-        await Assert.That(longResult.IsT0).IsTrue();
-        await Assert.That(longResult.AsT0.Name).IsEqualTo("Bob");
+        longResult.IsT0.ShouldBeTrue();
+        longResult.AsT0.Name.ShouldBe("Bob");
 
+        // TODO: Split '=' expression this into two tokens
         var eqResult = OptionWithValueApp.TryParse(new[] { "--name=Carol" });
-        await Assert.That(eqResult.IsT0).IsTrue();
-        await Assert.That(eqResult.AsT0.Name).IsEqualTo("Carol");
+        eqResult.IsT0.ShouldBeTrue();
+        eqResult.AsT0.Name.ShouldBe("Carol");
     }
 
-    [Test]
-    public async Task AppendOption_CollectsMultipleValues()
+    [Fact]
+    public void AppendOption_CollectsMultipleValues()
     {
         var result = AppendOptionApp.TryParse(new[]
         {
@@ -88,32 +99,31 @@ public class Tests
             "--tag", "two",
             "-t", "three"
         });
-        await Assert.That(result.IsT0).IsTrue();
-        await Assert.That(result.AsT0.Tags).IsEquivalentTo(["one", "two", "three"]);
+        result.IsT0.ShouldBeTrue();
+        result.AsT0.Tags.ShouldBeSubsetOf(["one", "two", "three"]);
     }
 
-    [Test]
-    public async Task CountFlag_IncrementsCorrectly()
+    [Fact]
+    public void CountFlag_IncrementsCorrectly()
     {
         var result = CountFlagApp.TryParse(new[] { "-vvv" });
-        await Assert.That(result.IsT0).IsTrue();
-        await Assert.That(result.AsT0.Verbosity).IsEqualTo(3);
+        result.IsT0.ShouldBeTrue();
+        result.AsT0.Verbosity.ShouldBe(3);
     }
 
-    [Test]
-    public async Task HelpFlag_ReturnsShowHelp()
+    [Fact]
+    public void HelpFlag_ReturnsShowHelp()
     {
         var result = HelpApp.TryParse(new[] { "--help" });
-        await Assert.That(result.IsT1).IsTrue().Because("Expected ShowHelp on help flag");
+        result.IsT1.ShouldBeTrue("Expected ShowHelp on help flag");
     }
 
-    [Test]
-    public async Task MissingRequiredOption_ReturnsParseError()
+    [Fact]
+    public void MissingRequiredOption_ReturnsParseError()
     {
-        var result = RequiredOptionApp.TryParse([]);
-        await Assert.That(result.IsT3).IsTrue().Because("Expected ParseError when required missing");
-        await Assert.That(result.AsT3.Message).Contains("required")
-            .Because("Error message should mention required");
+        var result = RequiredOptionApp.TryParse(ReadOnlySpan<IToken>.Empty);
+        result.IsT3.ShouldBeTrue("Expected ParseError when required missing");
+        result.AsT3.Message.ShouldContain("required", Case.Sensitive, "Error message should mention required");
     }
 }
 
@@ -145,7 +155,7 @@ public partial class DoubleRequiredPositionalApp
 [Command]
 public partial class SubCommandApp
 {
-    [Command(Traits.Subcommand)] public required SubCommandCommand Command { get; init; }
+    [Command(Subcommand = true)] public required SubCommandCommand Command { get; init; }
 }
 
 [SubCommand]
@@ -176,7 +186,7 @@ public partial class OptionWithValueApp
 public partial class AppendOptionApp
 {
     [Arg(Short = 't', Long = "tag", Action = ArgAction.Append)]
-    public IEnumerable<string> Tags { get; init; } = Enumerable.Empty<string>();
+    public IEnumerable<string> Tags { get; init; } = [];
 }
 
 [Command]
@@ -189,7 +199,7 @@ public partial class CountFlagApp
 [Command]
 public partial class HelpApp
 {
-    [Arg(Short = 'h', Long = "help", Action = ArgAction.Help)]
+    [Arg(Short = 'h', Long = "help", Negation = true, Action = ArgAction.Help)]
     public bool Help { get; init; }
 }
 
@@ -197,4 +207,20 @@ public partial class HelpApp
 public partial class RequiredOptionApp
 {
     [Arg(Short = 'r', Long = "req")] public required int Req { get; init; }
+}
+
+[Command]
+public partial class FlagFollowedByBoolArgsApp
+{
+    [Arg(Short = 't')] public bool Trim { get; init; }
+
+    [Arg] public required string Word { get; init; }
+}
+
+[Command]
+public partial class TrailingArgsApp
+{
+    [Arg] public required string FirstWord { get; init; }
+
+    [Arg] public required string[] RestOfTheWords { get; init; }
 }

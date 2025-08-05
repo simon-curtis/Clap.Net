@@ -19,6 +19,7 @@ public sealed class ArgAttribute : Attribute
     public string? Long { get; init; }
 
     public string? Env { get; init; }
+    public bool Negation { get; init; }
 
     public bool FromGlobal { get; init; }
 

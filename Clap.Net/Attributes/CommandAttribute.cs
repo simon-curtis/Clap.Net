@@ -73,12 +73,7 @@ public sealed class CommandAttribute() : Attribute
     /// <summary>
     /// Nest subcommands under the current set of subcommands (must implement Subcommand)
     /// </summary>
-    public Traits Traits { get; init; }
-
-    public CommandAttribute(Traits traits) : this()
-    {
-        Traits = traits;
-    }
+    public bool Subcommand { get; init; }
 }
 
 [Flags]
