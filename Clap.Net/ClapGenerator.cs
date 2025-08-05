@@ -51,7 +51,8 @@ internal record NamedArgumentModel(
     char? Short,
     string? Long,
     string? Env,
-    ArgAction? Action
+    bool? Negation,
+    ArgAction Action
 ) : ArgumentModel(Symbol, MemberType, VariableName, DefaultValue);
 
 [Generator]
@@ -222,7 +223,13 @@ public class ClapGenerator : IIncrementalGenerator
             var argNamedArguments = argAttribute.NamedArguments.ToDictionary(a => a.Key, a => a.Value.Value);
             var @short = argNamedArguments.GetOrDefault(nameof(ArgAttribute.Short)) as char?;
             var @long = argNamedArguments.GetOrDefault(nameof(ArgAttribute.Long)) as string;
-            var argAction = argNamedArguments.GetOrDefault(nameof(ArgAttribute.Action)) as ArgAction?;
+            var argAction = argNamedArguments.GetOrDefault(nameof(ArgAttribute.Action)) switch
+            {
+                ArgAction action => action,
+                int value => (ArgAction)value,
+                string value => Enum.TryParse<ArgAction>(value, out var action) ? action : ArgAction.Set,
+                _ => ArgAction.Set
+            };
 
             ArgumentModel argument = @short is not null || @long is not null
                 ? new NamedArgumentModel(
@@ -234,6 +241,7 @@ public class ClapGenerator : IIncrementalGenerator
                     Short: @short,
                     Long: @long,
                     Env: argNamedArguments.GetOrDefault(nameof(ArgAttribute.Env)) as string,
+                    Negation: argNamedArguments.GetOrDefault(nameof(ArgAttribute.Negation)) as bool?,
                     argAction
                 )
                 : new PositionalArgumentModel(member, memberType, variableName, defaultValue, positionalIndex++);
@@ -325,8 +333,9 @@ public class ClapGenerator : IIncrementalGenerator
             writer.WriteMultiLine($$"""
                                     public static {{fullName}} Parse(System.ReadOnlySpan<string> args) 
                                     {
-                                        switch (TryParse(args))
-                                        { 
+                                        var tokens = Lexer.Lex(args);
+                                        switch (TryParse(tokens))
+                                        {
                                             case { IsT0: true, AsT0: var result }:
                                                 return result;
 
@@ -352,12 +361,18 @@ public class ClapGenerator : IIncrementalGenerator
 
                                     public static Clap.Net.Models.ParseResult<{{fullName}}> TryParse(System.ReadOnlySpan<string> args)
                                     {
+                                        var tokens = Lexer.Lex(args);
+                                        return TryParse(tokens);
+                                    }
+
+                                    public static Clap.Net.Models.ParseResult<{{fullName}}> TryParse(System.ReadOnlySpan<IToken> tokens)
+                                    {
                                     """);
 
             writer.Indent++;
 
             writer.WriteMultiLine("""
-                                  if (args.Length > 0 && args[0] is "-h" or "--help") 
+                                  if (tokens.Length > 0 && tokens[0] is ShortFlag { Char: 'h' } or LongFlag { Name: "help" }) 
                                   {
                                       return new Clap.Net.Models.ShowHelp();
                                   }
@@ -367,7 +382,7 @@ public class ClapGenerator : IIncrementalGenerator
             if (version is not null)
             {
                 writer.WriteMultiLine($$"""
-                                        if (args.Length > 0 && args[0] is "-v" or "--version")
+                                        if (tokens.Length > 0 && tokens[0] is ShortFlag { Char: 'v' } or LongFlag { Name: "version" })
                                         {
                                             return new Clap.Net.Models.ShowVersion("{{version}}");
                                         }
@@ -413,7 +428,6 @@ public class ClapGenerator : IIncrementalGenerator
                     var type = arg.MemberType.ToDisplayString(FullNameDisplayString);
                     writer.WriteLine($"{type} {arg.VariableName} = {defaultValue};");
                 }
-
             }
 
             foreach (var arg in commandModel.Arguments.OfType<PositionalArgumentModel>())
@@ -430,9 +444,9 @@ public class ClapGenerator : IIncrementalGenerator
 
             writer.WriteMultiLine("""
                                   var index = 0;
-                                  while (index < args.Length)
+                                  while (index < tokens.Length)
                                   {
-                                      switch (args[index])
+                                      switch (tokens[index])
                                       {
                                   """);
 
@@ -448,10 +462,10 @@ public class ClapGenerator : IIncrementalGenerator
                 for (var i = 0; i < subCommand.Commands.Length; i++)
                     names[i] = $"\"{subCommand.Commands[i].Name}\"";
 
-                writer.WriteLine($"case {string.Join(" or ", names)}:");
+                writer.WriteLine($"case ValueLiteral {{ Value: {string.Join(" or ", names)} }}:");
                 writer.Indent++;
                 writer.WriteMultiLine($"""
-                                       var subCommand = {subCommand.Symbol.ToDisplayString(FullNameDisplayString)}.Resolve(args[index..]);
+                                       var subCommand = {subCommand.Symbol.ToDisplayString(FullNameDisplayString)}.Resolve(tokens[index..]);
                                        if (subCommand.IsT1) return subCommand.AsT1;
                                        if (subCommand.IsT2) return subCommand.AsT2;
                                        if (subCommand.IsT3) return subCommand.AsT3;
@@ -471,21 +485,62 @@ public class ClapGenerator : IIncrementalGenerator
                 writer.WriteLine();
             }
 
+            writer.WriteLine("// Handling CompoundFlag");
+            writer.WriteLine("case CompoundFlag { Chars: var chars }:");
+            writer.Indent++;
+            writer.WriteLine("foreach (var c in chars)");
+            writer.WriteLine("{");
+
+            writer.Indent++;
+            writer.WriteLine("switch (c)");
+            writer.WriteLine("{");
+            writer.Indent++;
+            foreach (var arg in commandModel.Arguments
+                         .OfType<NamedArgumentModel>()
+                         .Where(a => a.Short is not null))
+            {
+                switch (arg.MemberType.Name)
+                {
+                    case "Boolean":
+                        writer.WriteLine($"case '{arg.Short!.Value}': {arg.VariableName} = true; break;");
+                        break;
+
+                    case "Int32" or "Int64":
+                        writer.WriteLine($"case '{arg.Short!.Value}': {arg.VariableName}++; break;");
+                        break;
+                }
+            }
+
+            writer.WriteLine(
+                $"default: return new Clap.Net.Models.ParseError($\"Unexpected flag supplied in compound flags '{{c}}'\");");
+            writer.Indent--;
+            writer.WriteLine("}");
+
+            writer.Indent--;
+            writer.WriteLine("}");
+            writer.WriteLine("index++;");
+            writer.WriteLine("break;");
+            writer.Indent--;
+            writer.WriteLine();
+
             foreach (var argument in commandModel.Arguments)
             {
                 switch (argument)
                 {
                     case NamedArgumentModel value:
                     {
+                        var symbolName = value.Symbol.Name.ToSnakeCase();
                         var name = value switch
                         {
-                            { Short: { } shortName, Long: { } longName } => $"\"-{shortName}\" or \"--{longName}\"",
-                            { Short: { } shortName } => $"\"-{shortName}\"",
-                            { Long: { } longName } => $"\"--{longName}\"",
-                            _ => $"\"{value.Symbol.Name.ToSnakeCase()}\""
+                            { Short: { } shortName, Long: { } longName } =>
+                                $"ShortFlag {{ Char: '{shortName}' }} or LongFlag {{ Name: \"{longName}\" }}",
+                            { Short: { } shortName } => $"ShortFlag {{ Char: '{shortName}' }}",
+                            { Long: { } longName } => $"LongFlag {{ Name: \"{longName}\" }}",
+                            _ => $"LongFlag {{ Name: \"{symbolName}\" }}"
                         };
 
-                        writer.WriteLine($"// Setting attribute '{fullName}.{value.Symbol.Name}'");
+                        writer.WriteLine($"// Setting named argument '{fullName}.{value.Symbol.Name}'");
+                        writer.WriteLine($"// action '{value.Action.ToString()}'");
                         writer.WriteLine($"case {name}:");
                         writer.WriteLine("{");
                         writer.Indent++;
@@ -495,6 +550,22 @@ public class ClapGenerator : IIncrementalGenerator
                         writer.Indent--;
                         writer.WriteLine("}");
                         writer.WriteLine();
+
+                        if (argument.MemberType.Name is "Boolean"
+                            && value is { Negation: true, Long: { } l })
+                        {
+                            writer.WriteLine($"// Setting attribute '{fullName}.{value.Symbol.Name}'");
+                            writer.WriteLine($"case NegatedFlag {{ Flag: LongFlag {{ Name: \"--no-{l}\"}} }}:");
+                            writer.WriteLine("{");
+                            writer.Indent++;
+                            writer.WriteLine("index++;");
+                            writer.WriteLine($"{value.VariableName} = false;");
+                            writer.WriteLine("break;");
+                            writer.Indent--;
+                            writer.WriteLine("}");
+                            writer.WriteLine();
+                        }
+
                         break;
                     }
 
@@ -502,7 +573,7 @@ public class ClapGenerator : IIncrementalGenerator
                     {
                         writer.WriteLine($"// Setting attribute '{fullName}.{positional.Symbol.Name}'");
                         writer.WriteLine(
-                            $"case var arg when !arg.StartsWith('-') && positionalIndex is {positional.Index}:");
+                            $"case ValueLiteral {{ Value: var value }} when positionalIndex is {positional.Index}:");
                         writer.WriteLine("{");
                         writer.Indent++;
                         SetPositionalValue(writer, positional);
@@ -647,10 +718,10 @@ public class ClapGenerator : IIncrementalGenerator
             $$"""
               public partial class {{typeName}}
               {
-                  public static Clap.Net.Models.ParseResult<{{fullName}}> Resolve(System.ReadOnlySpan<string> args)
+                  public static Clap.Net.Models.ParseResult<{{fullName}}> Resolve(System.ReadOnlySpan<IToken> tokens)
                   {
                       // {{commands.Length}} commands to parse
-                      return args[0] switch 
+                      return tokens[0] switch 
                       {
               """);
 
@@ -665,7 +736,8 @@ public class ClapGenerator : IIncrementalGenerator
                        ?? command.Symbol.Name.ToSnakeCase();
 
             var commandFullName = command.Symbol.ToDisplayString(FullNameDisplayString);
-            writer.WriteLine($"\"{name}\" => {commandFullName}.TryParse(args[1..]).ChangeType<{fullName}>(),");
+            writer.WriteLine(
+                $"ValueLiteral {{ Value: \"{name}\" }} => {commandFullName}.TryParse(tokens[1..]).ChangeType<{fullName}>(),");
         }
 
         writer.WriteLine("_ => throw new Exception(\"Unknown command\")");
@@ -708,33 +780,54 @@ public class ClapGenerator : IIncrementalGenerator
 
     private static void SetNamedArgumentValue(IndentedTextWriter writer, NamedArgumentModel argument)
     {
+        var symbolName = argument.Symbol.Name.ToSnakeCase();
+
         if (argument.MemberType.Name is "Boolean")
         {
-            writer.WriteMultiLine($$"""
-                                    if (index < args.Length 
-                                         && !args[index].StartsWith('-') 
-                                         && bool.TryParse(args[index + 1], out var b)) 
-                                    {
-                                        {{argument.VariableName}} = b;
-                                        index++;
-                                        break;
-                                    }
-
-                                    // If a value is not given then we should treat this has a positive flag
-                                    {{argument.VariableName}} = true;
-                                    """);
+            writer.WriteLine(
+                "if (index < tokens.Length - 1 && tokens[index] is ValueLiteral { Value: var value } && bool.TryParse(value.ToString(), out var b))");
+            writer.WriteLine("{");
+            writer.Indent++;
+            writer.WriteLine($"{argument.VariableName} = b;");
+            writer.WriteLine("index++;");
+            writer.WriteLine("break;");
+            writer.Indent--;
+            writer.WriteLine("}");
+            writer.WriteLine();
+            writer.WriteLine($"{argument.VariableName} = true;");
             return;
         }
 
-        switch (argument.MemberType)
+        writer.WriteLine("if (index > tokens.Length - 1 || tokens[index] is not ValueLiteral { Value: var value })");
+        writer.Indent++;
+        writer.WriteLine(
+            $"return new Clap.Net.Models.ParseError(\"Expected value to follow named arg '{symbolName}'\");");
+        writer.Indent--;
+        writer.WriteLine();
+
+        switch (argument)
         {
-            case IArrayTypeSymbol { ElementType: { } elementType }:
+            case { Action: ArgAction.Count }:
+                writer.WriteMultiLine($$"""
+                                        if (int.TryParse(value, out var i))
+                                        {
+                                            {{argument.VariableName}} = i;
+                                            index++;
+                                            break;
+                                        }
+
+                                        // If a value is not given then we should treat this as
+                                        {{argument.VariableName}}++;
+                                        """);
+                break;
+
+            case { MemberType: IArrayTypeSymbol { ElementType: { } elementType } }:
             {
                 WriteArraySetter(writer, argument.VariableName, elementType);
                 break;
             }
 
-            case INamedTypeSymbol { Name: "IEnumerable" } namedTypeSymbol:
+            case { MemberType: INamedTypeSymbol { Name: "IEnumerable" } namedTypeSymbol }:
             {
                 var elementType = namedTypeSymbol.TypeArguments.First();
                 writer.WriteMultiLine($"""
@@ -758,7 +851,7 @@ public class ClapGenerator : IIncrementalGenerator
         var childType = elementType.ToDisplayString(FullNameDisplayString);
         writer.WriteMultiLine($$"""
                                 var builder = System.Collections.Immutable.ImmutableArray.CreateBuilder<{{childType}}>();
-                                while (index < args.Length && !args[index].StartsWith('-')) 
+                                while (index < tokens.Length && tokens[index] is not ShortFlag) 
                                 {
                                     builder.Add({{GetArgConversion(elementType)}});
                                     index++;
@@ -767,7 +860,7 @@ public class ClapGenerator : IIncrementalGenerator
                                 """);
     }
 
-    private static string GetArgConversion(ITypeSymbol member, string variableName = "args[index]")
+    private static string GetArgConversion(ITypeSymbol member, string variableName = "value")
     {
         var nullable = member.NullableAnnotation is NullableAnnotation.Annotated;
         var fullName = member.ToDisplayString(FullNameDisplayString);
@@ -833,14 +926,14 @@ public class ClapGenerator : IIncrementalGenerator
 
     private static string GetVariableName(string name) => name switch
     {
-        "params" => "@params",
-        "base" => "@base",
-        "this" => "@this",
-        "default" => "@default",
-        "event" => "@event",
-        "field" => "@field",
-        "var" => "@var",
-        _ => name
+        "params" => "@___params",
+        "base" => "@___base",
+        "this" => "@___this",
+        "default" => "@___default",
+        "event" => "@___event",
+        "field" => "@___field",
+        "var" => "@___var",
+        _ => $"@___{name}"
     };
 
     private static string GetDefaultValueString(ITypeSymbol memberType) => memberType switch
