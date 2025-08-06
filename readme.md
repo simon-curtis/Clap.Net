@@ -104,6 +104,7 @@ dotnet run -- "~/Downloads/tree.png" -e "jpg" publish "https://yourdomain.com/up
     - [x] Environment variable fallback
     - [x] Default values (handled by language)
     - [x] Required vs optional
+    - [ ] Action (Set, Append, Count, etc.)
 - [ ] [Switch] (bool flags)
     - [x] Basic presence/absence flag
     - [x] Default to false unless specified

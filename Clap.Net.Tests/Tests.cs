@@ -34,6 +34,13 @@ public class Tests
     }
 
     [Fact]
+    public void LongFlag_IsFalse_WhenNegated()
+    {
+        var args = LongFlagDefaultTrueApp.TryParse(["--no-all"]);
+        args.AsT0.All.ShouldBeFalse();
+    }
+
+    [Fact]
     public void LongFlag_IsFalse_WhenNotPresent()
     {
         var args = LongFlagApp.TryParse(ReadOnlySpan<IToken>.Empty);
@@ -84,7 +91,6 @@ public class Tests
         longResult.IsT0.ShouldBeTrue();
         longResult.AsT0.Name.ShouldBe("Bob");
 
-        // TODO: Split '=' expression this into two tokens
         var eqResult = OptionWithValueApp.TryParse(new[] { "--name=Carol" });
         eqResult.IsT0.ShouldBeTrue();
         eqResult.AsT0.Name.ShouldBe("Carol");
@@ -93,12 +99,13 @@ public class Tests
     [Fact]
     public void AppendOption_CollectsMultipleValues()
     {
-        var result = AppendOptionApp.TryParse(new[]
-        {
-            "-t", "one",
-            "--tag", "two",
-            "-t", "three"
-        });
+        var result = AppendOptionApp.TryParse(
+            new[]
+            {
+                "-t", "one",
+                "--tag", "two",
+                "-t", "three"
+            });
         result.IsT0.ShouldBeTrue();
         result.AsT0.Tags.ShouldBeSubsetOf(["one", "two", "three"]);
     }
@@ -112,7 +119,7 @@ public class Tests
     }
 
     [Fact]
-    public void HelpFlag_ReturnsShowHelp()
+    public void HelpFlag_IsTrue_WhenPresent()
     {
         var result = HelpApp.TryParse(new[] { "--help" });
         result.IsT1.ShouldBeTrue("Expected ShowHelp on help flag");
@@ -125,18 +132,46 @@ public class Tests
         result.IsT3.ShouldBeTrue("Expected ParseError when required missing");
         result.AsT3.Message.ShouldContain("required", Case.Sensitive, "Error message should mention required");
     }
+
+    [Fact]
+    public void UnexpectedCompoundFlag_ReturnsParseError()
+    {
+        var result = CountFlagApp.TryParse(["-pp"]);
+        result.IsT3.ShouldBeTrue("Expected ParseError when required missing");
+        result.AsT3.Message.ShouldBe("Unexpected flag supplied in compound flags 'p'");
+    }
+
+    [Fact]
+    public void TrailingParams_AreCollected_WhenPresent()
+    {
+        var result = TrailingArgsApp.TryParse(["example", "example1", "example2"]);
+        result.IsT0.ShouldBeTrue();
+        result.AsT0.FirstWord.ShouldBe("example");
+        result.AsT0.RestOfTheWords.Length.ShouldBe(2);
+        result.AsT0.RestOfTheWords[0].ShouldBe("example1");
+        result.AsT0.RestOfTheWords[1].ShouldBe("example2");
+    }
 }
 
 [Command]
 public partial class ShortFlagApp
 {
-    [Arg(Short = 'a')] public bool All { get; init; }
+    [Arg(Short = 'a')]
+    public bool All { get; init; }
 }
 
 [Command]
 public partial class LongFlagApp
 {
-    [Arg(Long = "all")] public bool All { get; init; }
+    [Arg(Long = "all")]
+    public bool All { get; init; }
+}
+
+[Command]
+public partial class LongFlagDefaultTrueApp
+{
+    [Arg(Long = "all", Negation = true)]
+    public bool All { get; init; } = true;
 }
 
 [Command]
@@ -155,7 +190,8 @@ public partial class DoubleRequiredPositionalApp
 [Command]
 public partial class SubCommandApp
 {
-    [Command(Subcommand = true)] public required SubCommandCommand Command { get; init; }
+    [Command(Subcommand = true)]
+    public required SubCommandCommand Command { get; init; }
 }
 
 [SubCommand]
@@ -171,8 +207,11 @@ public partial class SubCommandCommand
 [Command]
 public partial class CombinedShortFlagsApp
 {
-    [Arg(Short = 'a')] public bool All { get; init; }
-    [Arg(Short = 'b')] public bool Bold { get; init; }
+    [Arg(Short = 'a')]
+    public bool All { get; init; }
+
+    [Arg(Short = 'b')]
+    public bool Bold { get; init; }
 }
 
 [Command]
@@ -206,21 +245,26 @@ public partial class HelpApp
 [Command]
 public partial class RequiredOptionApp
 {
-    [Arg(Short = 'r', Long = "req")] public required int Req { get; init; }
+    [Arg(Short = 'r', Long = "req")]
+    public required int Req { get; init; }
 }
 
 [Command]
 public partial class FlagFollowedByBoolArgsApp
 {
-    [Arg(Short = 't')] public bool Trim { get; init; }
+    [Arg(Short = 't')]
+    public bool Trim { get; init; }
 
-    [Arg] public required string Word { get; init; }
+    [Arg]
+    public required string Word { get; init; }
 }
 
 [Command]
 public partial class TrailingArgsApp
 {
-    [Arg] public required string FirstWord { get; init; }
+    [Arg]
+    public required string FirstWord { get; init; }
 
-    [Arg] public required string[] RestOfTheWords { get; init; }
+    [Arg]
+    public required string[] RestOfTheWords { get; init; }
 }
