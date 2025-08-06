@@ -151,6 +151,34 @@ public class Tests
         result.AsT0.RestOfTheWords[0].ShouldBe("example1");
         result.AsT0.RestOfTheWords[1].ShouldBe("example2");
     }
+    
+    [Fact]
+    public void TrailingParams_IsEmpty_WhenNotPresent()
+    {
+        var result = TrailingArgsApp.TryParse(["example"]);
+        result.IsT0.ShouldBeTrue();
+        result.AsT0.FirstWord.ShouldBe("example");
+        result.AsT0.RestOfTheWords.ShouldNotBeNull();
+        result.AsT0.RestOfTheWords.Length.ShouldBe(0);
+    }
+    
+    [Fact]
+    public void EnvironmentArg_IsPopulated_WhenPresent()
+    {
+        Environment.SetEnvironmentVariable(EnvironmentArgsApp.EnvName, "Simon");
+        var result = EnvironmentArgsApp.TryParse(ReadOnlySpan<IToken>.Empty);
+        result.IsT0.ShouldBeTrue();
+        result.AsT0.Name.ShouldBe("Simon");
+    }
+    
+    [Fact]
+    public void EnvironmentArg_ShouldUseFlagValue_WhenFlagIsPresent()
+    {
+        Environment.SetEnvironmentVariable(EnvironmentArgsApp.EnvName, "Simon");
+        var result = EnvironmentArgsApp.TryParse(["--name", "Dave"]);
+        result.IsT0.ShouldBeTrue();
+        result.AsT0.Name.ShouldBe("Dave");
+    }
 }
 
 [Command]
@@ -266,5 +294,14 @@ public partial class TrailingArgsApp
     public required string FirstWord { get; init; }
 
     [Arg]
-    public required string[] RestOfTheWords { get; init; }
+    public string[] RestOfTheWords { get; init; } = [];
+}
+
+[Command]
+public partial class EnvironmentArgsApp
+{
+    public const string EnvName = "APP_NAME";
+
+    [Arg(Short = 'n', Long = "name", Env = EnvName)]
+    public required string Name { get; init; } 
 }
