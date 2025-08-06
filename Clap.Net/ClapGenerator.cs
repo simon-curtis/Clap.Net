@@ -421,7 +421,7 @@ public class ClapGenerator : IIncrementalGenerator
                 for (var i = 0; i < subCommand.Commands.Length; i++)
                     names[i] = $"\"{subCommand.Commands[i].Name}\"";
 
-                writer.WriteLine($"case ValueLiteral {{ Value: {string.Join(" or ", names)} }}:");
+                writer.WriteLine($"case Clap.Net.ValueLiteral({string.Join(" or ", names)}):");
                 writer.Indent++;
                 writer.WriteMultiLine($"""
                                        var subCommand = {subCommand.Symbol.ToDisplayString(FullNameDisplayString)}.Resolve(tokens[index..]);
@@ -445,7 +445,7 @@ public class ClapGenerator : IIncrementalGenerator
             }
 
             writer.WriteLine("// Handling CompoundFlag");
-            writer.WriteLine("case CompoundFlag(var chars):");
+            writer.WriteLine("case Clap.Net.CompoundFlag(var chars):");
             writer.Indent++;
             writer.WriteLine("foreach (var c in chars)");
             writer.WriteLine("{");
@@ -532,7 +532,7 @@ public class ClapGenerator : IIncrementalGenerator
                     {
                         writer.WriteLine($"// Setting attribute '{fullName}.{positional.Symbol.Name}'");
                         writer.WriteLine(
-                            $"case ValueLiteral valueLiteral when positionalIndex is {positional.Index}:");
+                            $"case Clap.Net.ValueLiteral valueLiteral when positionalIndex is {positional.Index}:");
                         writer.WriteLine("{");
                         writer.Indent++;
                         SetPositionalValue(writer, positional);
@@ -696,7 +696,7 @@ public class ClapGenerator : IIncrementalGenerator
 
             var commandFullName = command.Symbol.ToDisplayString(FullNameDisplayString);
             writer.WriteLine(
-                $"ValueLiteral {{ Value: \"{name}\" }} => {commandFullName}.TryParse(tokens[1..]).ChangeType<{fullName}>(),");
+                $"Clap.Net.ValueLiteral(\"{name}\") => {commandFullName}.TryParse(tokens[1..]).ChangeType<{fullName}>(),");
         }
 
         writer.WriteLine("_ => throw new Exception(\"Unknown command\")");
@@ -748,7 +748,7 @@ public class ClapGenerator : IIncrementalGenerator
         if (argument.MemberType.Name is "Boolean")
         {
             writer.WriteLine(
-                "if (index < tokens.Length - 1 && tokens[index] is ValueLiteral { Value: var value } && bool.TryParse(value.ToString(), out var b))");
+                "if (index < tokens.Length - 1 && tokens[index] is Clap.Net.ValueLiteral(var value) && bool.TryParse(value.ToString(), out var b))");
             writer.WriteLine("{");
             writer.Indent++;
             writer.WriteLine($"{argument.VariableName} = b;");
@@ -761,7 +761,7 @@ public class ClapGenerator : IIncrementalGenerator
             return;
         }
 
-        writer.WriteLine("if (index > tokens.Length - 1 || tokens[index] is not ValueLiteral { Value: var value })");
+        writer.WriteLine("if (index > tokens.Length - 1 || tokens[index] is not Clap.Net.ValueLiteral(var value))");
         writer.Indent++;
         writer.WriteLine(
             $"return new Clap.Net.Models.ParseError(\"Expected value to follow named arg '{symbolName}'\");");
