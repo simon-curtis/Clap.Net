@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+    paths:
+      # Only run workflow when actual lib is changed
+      - 'Clap.Net/**'
+      - '.github/workflows/main.yml'
 
 jobs:
   release:
@@ -24,6 +28,13 @@ jobs:
         working-directory: ./Clap.Net
         run: dotnet restore
 
+      # -------------------------------------------------
+      # Run all tests in the solution (Release config)
+      # -------------------------------------------------
+      - name: Run Tests
+        working-directory: ./Clap.Net
+        run: dotnet test --configuration Release --no-restore --verbosity normal
+      
       # Generate version string (0.1.<run_number>-beta)
       - name: Set version number
         id: version
