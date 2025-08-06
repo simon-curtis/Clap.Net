@@ -36,8 +36,6 @@ public enum ArgAction
     SetFalse,
     Count,
     Help,
-    HelpShort,
-    HelpLong,
     Version,
 }
 
