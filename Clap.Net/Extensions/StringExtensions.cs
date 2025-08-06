@@ -1,8 +1,8 @@
 using System.Text;
 
-namespace Clap.Net;
+namespace Clap.Net.Extensions;
 
-public static class TextHelpers
+public static class StringExtensions
 {
     public static string ToCamelCase(this string name)
     {

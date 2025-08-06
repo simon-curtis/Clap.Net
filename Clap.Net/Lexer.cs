@@ -11,8 +11,21 @@ public static class Lexer
         foreach (var arg in args)
         {
             if (arg.Length is 0) continue;
-            var token = LexArg(arg.AsSpan());
-            builder.Add(token);
+
+            var span = arg.AsSpan();
+            if (span.StartsWith("-".AsSpan()) && span.IndexOf('=') is var equals and > -1)
+            {
+                var flagPart = LexArg(span.Slice(0, equals));
+                builder.Add(flagPart);
+
+                var valuePart = new ValueLiteral(span.Slice(equals + 1).ToString());
+                builder.Add(valuePart);
+            }
+            else
+            {
+                var token = LexArg(span);
+                builder.Add(token);
+            }
         }
 
         return builder.ToArray();
@@ -21,75 +34,30 @@ public static class Lexer
     private static IToken LexArg(ReadOnlySpan<char> arg)
     {
         if (arg.Length is 1 || arg[0] is not '-')
-        {
-            return new ValueLiteral
-            {
-                Value = arg.ToString()
-            };
-        }
+            return new ValueLiteral(arg.ToString());
 
         if (arg[1] is '-')
         {
-            return new LongFlag
-            {
-                FullFlag = arg.ToString(),
-                Name = arg.Slice(2).ToString()
-            };
+            return arg.Slice(0, 5) is "--no-"
+                ? new NegatedFlag(new LongFlag(arg.Slice(5).ToString()))
+                : new LongFlag(arg.Slice(2).ToString());
         }
 
         if (arg.Length > 2)
-        {
-            return new CompoundFlag
-            {
-                FullFlag = arg.ToString(),
-                Chars = arg.Slice(1).ToArray()
-            };
-        }
+            return new CompoundFlag(arg.Slice(1).ToArray());
 
-        return new ShortFlag
-        {
-            FullFlag = arg.ToString(),
-            Char = arg[1]
-        };
+        return new ShortFlag(arg[1]);
     }
 }
 
 public interface IToken;
 
-public readonly struct ShortFlag : IToken
-{
-    public string FullFlag { get; init; }
-    public char Char { get; init; }
-}
+public record ShortFlag(char Char) : IToken;
 
-public readonly struct CompoundFlag : IToken
-{
-    public string FullFlag { get; init; }
-    public char[] Chars { get; init; }
-}
+public record CompoundFlag(char[] Chars) : IToken;
 
-public readonly struct NegatedFlag : IToken
-{
-    public IToken Flag { get; init; }
-}
+public record NegatedFlag(LongFlag Flag) : IToken;
 
-public readonly struct LongFlag : IToken
-{
-    public string FullFlag { get; init; }
-    public string Name { get; init; }
-}
+public record LongFlag(string Name) : IToken;
 
-public readonly struct ValueLiteral : IToken
-{
-    public string Value { get; init; }
-
-    public bool TryInt(out int i)
-    {
-        return int.TryParse(Value, out i);
-    }
-
-    public bool TryBool(out bool b)
-    {
-        return bool.TryParse(Value, out b);
-    }
-}
+public record ValueLiteral(string Value) : IToken;

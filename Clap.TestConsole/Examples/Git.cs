@@ -130,7 +130,7 @@ public abstract partial class Commands
     [Command(About = "Add file contents to the index")]
     public sealed partial class Add : Commands
     {
-        [Arg]
+        [Arg(Short = 'p', Action = ArgAction.Append)]
         public required string[] Paths { get; init; }
     }
 
