@@ -61,3 +61,18 @@ public record NegatedFlag(LongFlag Flag) : IToken;
 public record LongFlag(string Name) : IToken;
 
 public record ValueLiteral(string Value) : IToken;
+
+public static class TokenExtensions
+{
+    public static string Format(this IToken token)
+    {
+        return token switch
+        {
+            ShortFlag s => $"-{s.Char}",
+            CompoundFlag c => $"-{string.Join("", c.Chars)}",
+            NegatedFlag n => $"--{n.Flag}",
+            ValueLiteral v => v.Value,
+            _ => throw new ArgumentOutOfRangeException(nameof(token), token, null)
+        };
+    }
+} 
