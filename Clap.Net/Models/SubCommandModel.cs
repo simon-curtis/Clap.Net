@@ -2,4 +2,6 @@
 
 namespace Clap.Net.Models;
 
-internal record SubCommandModel(ISymbol Symbol, CommandModel[] Commands);
+internal record SubCommandModel(
+    ISymbol Symbol, 
+    CommandModel[] Commands);

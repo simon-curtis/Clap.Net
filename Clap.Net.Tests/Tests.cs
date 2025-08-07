@@ -151,7 +151,7 @@ public class Tests
         result.AsT0.RestOfTheWords[0].ShouldBe("example1");
         result.AsT0.RestOfTheWords[1].ShouldBe("example2");
     }
-    
+
     [Fact]
     public void TrailingParams_IsEmpty_WhenNotPresent()
     {
@@ -161,7 +161,7 @@ public class Tests
         result.AsT0.RestOfTheWords.ShouldNotBeNull();
         result.AsT0.RestOfTheWords.Length.ShouldBe(0);
     }
-    
+
     [Fact]
     public void EnvironmentArg_IsPopulated_WhenPresent()
     {
@@ -170,7 +170,7 @@ public class Tests
         result.IsT0.ShouldBeTrue();
         result.AsT0.Name.ShouldBe("Simon");
     }
-    
+
     [Fact]
     public void EnvironmentArg_ShouldUseFlagValue_WhenFlagIsPresent()
     {
@@ -178,6 +178,37 @@ public class Tests
         var result = EnvironmentArgsApp.TryParse(["--name", "Dave"]);
         result.IsT0.ShouldBeTrue();
         result.AsT0.Name.ShouldBe("Dave");
+    }
+
+    [Fact]
+    public void ParentApp_HasRequiredSubCommand_WhenPresent()
+    {
+        var result = ParentApp.TryParse(["-d", ParentCommand.ChildCommand.Name, "-p"]);
+        result.IsT0.ShouldBeTrue();
+        result.AsT0.Dodgems.ShouldBeTrue();
+        result.AsT0.Command.ShouldNotBeNull();
+        var command = result.AsT0.Command.ShouldBeOfType<ParentCommand.ChildCommand>();
+        command.IsPresent.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void ParentWithoutChildApp_HasOptionalSubCommand_WhenPresent()
+    {
+        var result = ParentWithoutChildApp.TryParse(["-d", ParentCommand.ChildCommand.Name, "-p"]);
+        result.IsT0.ShouldBeTrue();
+        result.AsT0.Dodgems.ShouldBeTrue();
+        result.AsT0.Command.ShouldNotBeNull();
+        var command = result.AsT0.Command.ShouldBeOfType<ParentCommand.ChildCommand>();
+        command.IsPresent.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void ParentWithoutChildApp_DoesntHaveChild_WhenNotProvided()
+    {
+        var result = ParentWithoutChildApp.TryParse(["-d"]);
+        result.IsT0.ShouldBeTrue();
+        result.AsT0.Dodgems.ShouldBeTrue();
+        result.AsT0.Command.ShouldBeNull();
     }
 }
 
@@ -303,5 +334,38 @@ public partial class EnvironmentArgsApp
     public const string EnvName = "APP_NAME";
 
     [Arg(Short = 'n', Long = "name", Env = EnvName)]
-    public required string Name { get; init; } 
+    public required string Name { get; init; }
+}
+
+[Command]
+public partial class ParentApp
+{
+    [Arg(Short = 'd')]
+    public bool Dodgems { get; init; }
+
+    [Command(Subcommand = true)]
+    public required ParentCommand Command { get; init; }
+}
+
+[Command]
+public partial class ParentWithoutChildApp
+{
+    [Arg(Short = 'd')]
+    public bool Dodgems { get; init; }
+
+    [Command(Subcommand = true)]
+    public ParentCommand? Command { get; init; }
+}
+
+[SubCommand]
+public partial class ParentCommand
+{
+    [Command(Name = Name)]
+    public partial class ChildCommand : ParentCommand
+    {
+        public const string Name = "child_command";
+
+        [Arg(Short = 'p', Long = "present")]
+        public required bool IsPresent { get; init; }
+    }
 }
