@@ -162,8 +162,10 @@ public class ClapGenerator : IIncrementalGenerator
                     .FirstOrDefault(a => a.Key is nameof(CommandAttribute.Name))
                     .Value.Value?.ToString() ?? member.Name;
 
-
-                subCommandArgumentModel = new SubCommandArgumentModel(member, memberType, name, isRequired);
+                subCommandArgumentModel = new SubCommandArgumentModel(
+                    member,
+                    memberType,
+                    isRequired, defaultValue);
                 continue;
             }
 
@@ -233,7 +235,10 @@ public class ClapGenerator : IIncrementalGenerator
             Version: args.GetOrDefault(nameof(CommandAttribute.Version)) as string,
             Symbol: commandCandidateSymbol,
             SubCommandArgumentModel: subCommandArgumentModel,
-            Arguments: [.. arguments]);
+            Arguments: [.. arguments],
+            IsSubCommand: commandCandidateSymbol.BaseType?
+                .GetAttributes()
+                .Any(attr => attr.AttributeClass?.Name is nameof(SubCommandAttribute)) is true);
     }
 
     private static string GenerateCommandParseMethod(
@@ -241,6 +246,8 @@ public class ClapGenerator : IIncrementalGenerator
         ImmutableArray<SubCommandModel?> subCommandModels,
         string? assemblyVersion)
     {
+        var namedArguments = commandModel.Arguments.OfType<NamedArgumentModel>().ToArray();
+
         try
         {
             var typeName = commandModel.Symbol.Name;
@@ -248,8 +255,6 @@ public class ClapGenerator : IIncrementalGenerator
             var subCommand = commandModel.SubCommandArgumentModel is { } c
                 ? FindSubCommand(c.MemberType, subCommandModels)
                 : null;
-
-            var version = commandModel.Version ?? assemblyVersion;
 
             var ns = commandModel.Symbol.ContainingNamespace.IsGlobalNamespace
                 ? null
@@ -288,16 +293,21 @@ public class ClapGenerator : IIncrementalGenerator
             writer.WriteLine("private const string HelpMessage = ");
             writer.Indent++;
             writer.WriteLine("\"\"\"");
-            writer.WriteMultiLine(GenerateHelpMessage(commandModel, subCommand));
+            writer.WriteMultiLine(GenerateHelpMessage(commandModel, subCommand, namedArguments));
             writer.WriteLine("\"\"\";");
             writer.Indent--;
             writer.WriteLine();
 
             writer.WriteMultiLine(
                 $$"""
-                  public static {{fullName}} Parse(System.ReadOnlySpan<string> args) 
+                  public static {{fullName}} Parse(System.ReadOnlySpan<string> args)
                   {
                       var tokens = Clap.Net.Lexer.Lex(args);
+                      return Parse(tokens);
+                  }
+
+                  public static {{fullName}} Parse(System.ReadOnlySpan<Clap.Net.IToken> tokens)
+                  {
                       switch (TryParse(tokens))
                       {
                           case { IsT0: true, AsT0: var result }:
@@ -308,8 +318,8 @@ public class ClapGenerator : IIncrementalGenerator
                               System.Environment.Exit(0);
                               break;
 
-                          case { IsT3: true, AsT3: { Message: var message } }:
-                              DisplayError(message);
+                          case { IsT3: true, AsT3: { Message: var message, HelpMessage: var helpMessage } }:
+                              DisplayError(message, helpMessage);
                               System.Environment.Exit(0);
                               break;
 
@@ -344,16 +354,29 @@ public class ClapGenerator : IIncrementalGenerator
                 """);
             writer.WriteLine();
 
-            if (version is not null)
+            if ((commandModel.Version ?? assemblyVersion) is { } version)
             {
-                writer.WriteMultiLine(
-                    $$"""
-                      if (tokens.Length > 0 && tokens[0] is Clap.Net.ShortFlag('v') or Clap.Net.LongFlag("version"))
-                      {
-                          return new Clap.Net.Models.ShowVersion("{{version}}");
-                      }
-                      """);
-                writer.WriteLine();
+                var versionFlags = new List<string>();
+
+                if (namedArguments.All(_ => _.Short != 'v'))
+                    versionFlags.Add("Clap.Net.ShortFlag('v')");
+
+                if (namedArguments.All(_ => _.Long != "version"))
+                    versionFlags.Add("Clap.Net.LongFlag(\"version\")");
+
+                if (versionFlags.Any())
+                {
+                    writer.Write("if (tokens.Length > 0 && tokens[0] is ");
+                    writer.Write(string.Join(" or ", versionFlags));
+                    writer.WriteLine(')');
+                    writer.WriteMultiLine(
+                        $$"""
+                          {
+                              return new Clap.Net.Models.ShowVersion("{{version}}");
+                          }
+                          """);
+                    writer.WriteLine();
+                }
             }
 
             if (commandModel.Arguments.Length is 0 && commandModel.SubCommandArgumentModel is null)
@@ -375,7 +398,7 @@ public class ClapGenerator : IIncrementalGenerator
                 return textWriter.ToString();
             }
 
-            foreach (var arg in commandModel.Arguments.OfType<NamedArgumentModel>())
+            foreach (var arg in namedArguments)
             {
                 writer.Write($"// Argument '{arg.Symbol.Name}' is a");
                 if (arg.Required) writer.Write(" required");
@@ -419,6 +442,19 @@ public class ClapGenerator : IIncrementalGenerator
                 writer.WriteLine($"Clap.Net.Models.FieldValue<{type}> {arg.VariableName} = {defaultValue};");
             }
 
+            if (commandModel.SubCommandArgumentModel is { } subCommandArgument)
+            {
+                var type = subCommandArgument.MemberType.ToDisplayString(FullNameDisplayString);
+                var defaultValue = subCommandArgument switch
+                {
+                    { DefaultValue: { } value } => $"({type}){value}",
+                    { IsRequired: true } => "null",
+                    _ => $"({type})default!"
+                };
+
+                writer.WriteLine($"Clap.Net.Models.ParseResult<{type}>? @___subCommand = {defaultValue};");
+            }
+
             writer.WriteLine();
 
             var positionalArgs = commandModel.Arguments.OfType<PositionalArgumentModel>().ToArray();
@@ -449,22 +485,29 @@ public class ClapGenerator : IIncrementalGenerator
                 writer.Indent++;
                 writer.WriteMultiLine(
                     $"""
-                     var subCommand = {subCommand.Symbol.ToDisplayString(FullNameDisplayString)}.Resolve(tokens[index..]);
-                     if (subCommand.IsT1) return subCommand.AsT1;
-                     if (subCommand.IsT2) return subCommand.AsT2;
-                     if (subCommand.IsT3) return subCommand.AsT3;
+                     @___subCommand = {subCommand.Symbol.ToDisplayString(FullNameDisplayString)}.Resolve(tokens[index..]);
+                     if (@___subCommand.IsT1) return @___subCommand.AsT1;
+                     if (@___subCommand.IsT2) return @___subCommand.AsT2;
+                     if (@___subCommand.IsT3) return @___subCommand.AsT3;
                      """);
 
-                writer.WriteLine($"return new {fullName}");
-                writer.WriteLine('{');
-                writer.Indent++;
-                writer.WriteLine($"{commandModel.SubCommandArgumentModel!.Symbol.Name} = subCommand.AsT0,");
+                writer.WriteLine("// The sub command should have swallowed all the tokens");
+                writer.WriteLine("// but we still need the validation for (maybe) required");
+                writer.WriteLine("// flags before hand");
+                writer.WriteLine("index = tokens.Length;");
+                writer.WriteLine("break;");
 
-                foreach (var arg in commandModel.Arguments)
-                    writer.WriteLine($"{arg.Symbol.Name} = {arg.VariableName}.Value,");
-
-                writer.Indent--;
-                writer.WriteLine("};");
+                // writer.WriteLine($"return new {fullName}");
+                // writer.WriteLine('{');
+                // writer.Indent++;
+                //
+                // writer.WriteLine($"{commandModel.SubCommandArgumentModel!.Symbol.Name} = subCommand.AsT0,");
+                //
+                // foreach (var arg in commandModel.Arguments)
+                //     writer.WriteLine($"{arg.Symbol.Name} = {arg.VariableName}.Value,");
+                //
+                // writer.Indent--;
+                // writer.WriteLine("};");
                 writer.Indent--;
                 writer.WriteLine();
             }
@@ -497,7 +540,7 @@ public class ClapGenerator : IIncrementalGenerator
             }
 
             writer.WriteLine(
-                $"default: return new Clap.Net.Models.ParseError($\"Unexpected flag supplied in compound flags '{{c}}'\");");
+                $"default: return new Clap.Net.Models.ParseError($\"Unexpected flag supplied in compound flags '{{c}}'\", GetFormattedHelpMessage());");
             writer.Indent--;
             writer.WriteLine("}");
 
@@ -575,7 +618,7 @@ public class ClapGenerator : IIncrementalGenerator
             writer.WriteMultiLine(
                 """
                 case var arg:
-                    return new Clap.Net.Models.ParseError($"Unknown argument '{arg}'");
+                    return new Clap.Net.Models.ParseError($"Unknown argument '{Clap.Net.TokenExtensions.Format(arg)}'", GetFormattedHelpMessage());
                 """);
 
 
@@ -587,79 +630,82 @@ public class ClapGenerator : IIncrementalGenerator
 
             writer.WriteLine();
 
-            if (commandModel.SubCommandArgumentModel is { } reqCommand
-                && (reqCommand.IsRequired
-                    || reqCommand.MemberType.NullableAnnotation is not NullableAnnotation.Annotated))
+            var requiredArguments = commandModel.Arguments
+                .Where(a => a.Required)
+                .ToArray();
+
+            if (requiredArguments.Length > 0)
             {
+                writer.WriteMultiLine(
+                    $$"""
+                      if ({{string.Join(" || ", requiredArguments.Select(a => $"!{a.VariableName}.HasValue"))}})
+                      {
+                          var sb = new System.Text.StringBuilder();
+                      """);
+                writer.Indent++;
+
+                foreach (var requiredArg in requiredArguments)
+                {
+                    switch (requiredArg)
+                    {
+                        case { Symbol: IArrayTypeSymbol }:
+                        {
+                            writer.WriteMultiLine(
+                                $"""
+                                 if (!{requiredArg.VariableName}.HasValue || {requiredArg.VariableName}.Value.Length is 0)
+                                     sb.AppendLine("  <{requiredArg.Symbol.Name}>");
+                                 """);
+                            break;
+                        }
+
+                        default:
+                        {
+                            writer.WriteMultiLine(
+                                $"""
+                                 if (!{requiredArg.VariableName}.HasValue)
+                                     sb.AppendLine("  <{requiredArg.Symbol.Name}>");
+                                 """);
+                            break;
+                        }
+                    }
+                }
+
                 writer.WriteLine(
-                    $"return new Clap.Net.Models.ParseError(\"SubCommand '{reqCommand.Name}' is required\");");
+                    """return new Clap.Net.Models.ParseError($"The following required arguments were not provided:\n{sb.ToString()}", GetFormattedHelpMessage());""");
+                writer.Indent--;
+                writer.WriteLine("}");
             }
             else
             {
-                var requiredArguments = commandModel.Arguments
-                    .Where(a => a.Required)
-                    .ToArray();
-
-                if (requiredArguments.Length > 0)
-                {
-                    writer.WriteMultiLine(
-                        $$"""
-                          if ({{string.Join(" || ", requiredArguments.Select(a => $"!{a.VariableName}.HasValue"))}})
-                          {
-                              var sb = new System.Text.StringBuilder();
-                          """);
-                    writer.Indent++;
-
-                    foreach (var requiredArg in requiredArguments)
-                    {
-                        switch (requiredArg.Symbol)
-                        {
-                            case IArrayTypeSymbol:
-                            {
-                                writer.WriteMultiLine(
-                                    $"""
-                                     if (!{requiredArg.VariableName}.HasValue || {requiredArg.VariableName}.Value.Length is 0)
-                                         sb.AppendLine("  <{requiredArg.Symbol.Name}>");
-                                     """);
-                                break;
-                            }
-
-                            default:
-                            {
-                                writer.WriteMultiLine(
-                                    $"""
-                                     if (!{requiredArg.VariableName}.HasValue)
-                                         sb.AppendLine("  <{requiredArg.Symbol.Name}>");
-                                     """);
-                                break;
-                            }
-                        }
-                    }
-
-                    writer.WriteLine(
-                        """return new Clap.Net.Models.ParseError($"The following required arguments were not provided:\n{sb.ToString()}");""");
-                    writer.Indent--;
-                    writer.WriteLine("}");
-                }
-                else
-                {
-                    writer.WriteLine("// No required fields");
-                }
-
-                writer.WriteLine();
-                writer.WriteLine($"return new {fullName}");
-                writer.WriteLine('{');
-                writer.Indent++;
-
-                foreach (var arg in commandModel.Arguments)
-                {
-                    var variableName = GetVariableName(arg.Symbol.Name.ToCamelCase());
-                    writer.WriteLine($"{arg.Symbol.Name} = {variableName}.Value,");
-                }
-
-                writer.Indent--;
-                writer.WriteLine("};");
+                writer.WriteLine("// No required fields");
             }
+
+            if (commandModel.SubCommandArgumentModel is { IsRequired: true })
+            {
+                writer.WriteMultiLine(
+                    $"""
+                     if (@___subCommand is null)
+                         return new Clap.Net.Models.ParseError($"The subcommand was not provided:\n{commandModel.SubCommandArgumentModel.Symbol.Name}", GetFormattedHelpMessage());
+                     """);
+            }
+
+            writer.WriteLine();
+            writer.WriteLine($"return new {fullName}");
+            writer.WriteLine('{');
+            writer.Indent++;
+
+            foreach (var arg in commandModel.Arguments)
+            {
+                writer.WriteLine($"{arg.Symbol.Name} = {arg.VariableName}.Value,");
+            }
+
+            if (commandModel.SubCommandArgumentModel is not null)
+            {
+                writer.WriteLine($"{commandModel.SubCommandArgumentModel.Symbol.Name} = @___subCommand.AsT0,");
+            }
+
+            writer.Indent--;
+            writer.WriteLine("};");
 
             writer.Indent--;
             writer.WriteLine("}"); // This closes the Parse method
@@ -757,7 +803,7 @@ public class ClapGenerator : IIncrementalGenerator
                      if (!{argument.VariableName}.HasValue)
                          {argument.VariableName} = new System.Collections.Generic.List<{elementType}>();
 
-                     {argument.VariableName}.Value.Add({GetArgConversion(elementType)});
+                     {argument.VariableName}.Value.Add({GetArgConversion(elementType, "value")});
                      index++;
                      """);
                 break;
@@ -767,7 +813,7 @@ public class ClapGenerator : IIncrementalGenerator
                 writer.WriteMultiLine(
                     $"""
                      var value = valueLiteral.Value;
-                     {argument.VariableName} = {GetArgConversion(argument.MemberType)};
+                     {argument.VariableName} = {GetArgConversion(argument.MemberType, "value")};
                      index++;
                      """);
                 break;
@@ -797,7 +843,7 @@ public class ClapGenerator : IIncrementalGenerator
         writer.WriteLine("if (index > tokens.Length - 1 || tokens[index] is not Clap.Net.ValueLiteral(var value))");
         writer.Indent++;
         writer.WriteLine(
-            $"return new Clap.Net.Models.ParseError(\"Expected value to follow named arg '{symbolName}'\");");
+            $"return new Clap.Net.Models.ParseError(\"Expected value to follow named arg '{symbolName}'\", GetFormattedHelpMessage());");
         writer.Indent--;
         writer.WriteLine();
 
@@ -831,7 +877,7 @@ public class ClapGenerator : IIncrementalGenerator
                     $"""
                      if (!{argument.VariableName}.HasValue)
                          {argument.VariableName} = new System.Collections.Generic.List<{elementType}>();
-                     {argument.VariableName}.Value.Add({GetArgConversion(elementType)});
+                     {argument.VariableName}.Value.Add({GetArgConversion(elementType, "value")});
                      index++;
                      """);
                 break;
@@ -840,7 +886,7 @@ public class ClapGenerator : IIncrementalGenerator
             default:
                 writer.WriteMultiLine(
                     $"""
-                     {argument.VariableName} = {GetArgConversion(argument.MemberType)};
+                     {argument.VariableName} = {GetArgConversion(argument.MemberType, "value")};
                      index++;
                      """);
                 break;
@@ -853,16 +899,16 @@ public class ClapGenerator : IIncrementalGenerator
         writer.WriteMultiLine(
             $$"""
               var builder = System.Collections.Immutable.ImmutableArray.CreateBuilder<{{childType}}>();
-              while (index < tokens.Length && tokens[index] is Clap.Net.ValueLiteral(var value)) 
+              while (index < tokens.Length && tokens[index] is Clap.Net.ValueLiteral(var @____value)) 
               {
-                  builder.Add({{GetArgConversion(elementType)}});
+                  builder.Add({{GetArgConversion(elementType, "@____value")}});
                   index++;
               }
               {{variableName}} = builder.ToArray();
               """);
     }
 
-    private static string GetArgConversion(ITypeSymbol member, string variableName = "value")
+    private static string GetArgConversion(ITypeSymbol member, string variableName)
     {
         var nullable = member.NullableAnnotation is NullableAnnotation.Annotated;
         var fullName = member.ToDisplayString(FullNameDisplayString);
@@ -917,7 +963,7 @@ public class ClapGenerator : IIncrementalGenerator
             "Guid" => nullable
                 ? $"Guid.TryParse({variableName}, out var v) ? v : null"
                 : $"Guid.Parse({variableName})",
-            _ => $"Convert.ChangeType({variableName}, typeof({(nullable ? $"{fullName}?" : fullName)}))"
+            _ => $"({fullName})Convert.ChangeType({variableName}, typeof({fullName}))"
         };
     }
 
@@ -942,7 +988,10 @@ public class ClapGenerator : IIncrementalGenerator
             memberType == sc?.Symbol.ToDisplayString(FullNameDisplayString).TrimEnd('?'));
     }
 
-    private static string GenerateHelpMessage(CommandModel commandModel, SubCommandModel? subCommand)
+    private static string GenerateHelpMessage(
+        CommandModel commandModel,
+        SubCommandModel? subCommand,
+        NamedArgumentModel[] namedArguments)
     {
         var sb = new StringBuilder();
 
@@ -955,17 +1004,19 @@ public class ClapGenerator : IIncrementalGenerator
 
         sb.Append("Usage: {{EXECUTABLE_NAME}}");
 
-        if (commandModel.Arguments.OfType<NamedArgumentModel>().Any())
+        if (commandModel is { IsSubCommand: true, Name: not null })
+            sb.Append($" {commandModel.Name}");
+
+        if (namedArguments.Any())
             sb.Append(" [OPTIONS]");
 
         foreach (var positional in commandModel.Arguments.OfType<PositionalArgumentModel>())
-            sb.Append($" {positional.Symbol.Name.ToSnakeCase()}");
-
-        sb.AppendLine();
+            sb.Append($" <{positional.Symbol.Name.ToSnakeCase()}:{positional.MemberType.ToDisplayString()}>");
         sb.AppendLine();
 
         var table = new List<string?[]>();
-        foreach (var option in commandModel.Arguments.OfType<NamedArgumentModel>())
+
+        foreach (var option in namedArguments)
         {
             var names = option switch
             {
@@ -982,10 +1033,10 @@ public class ClapGenerator : IIncrementalGenerator
 
         var maxColumnLength = table.Max(o => o[0]?.Length ?? 0);
 
+        sb.AppendLine();
         sb.AppendLine("Options:");
         foreach (var row in table)
             sb.AppendLine($"  {row[0]?.PadRight(maxColumnLength)}  {row[1]}");
-        sb.AppendLine();
 
         if (subCommand is { Commands.Length: > 0 })
         {
@@ -995,10 +1046,10 @@ public class ClapGenerator : IIncrementalGenerator
 
             maxColumnLength = table.Max(o => o[0]?.Length ?? 0);
 
+            sb.AppendLine();
             sb.AppendLine("Commands:");
             foreach (var row in table)
                 sb.AppendLine($"  {row[0]?.PadRight(maxColumnLength)}  {row[1]}");
-            sb.AppendLine();
         }
 
         return sb.ToString();
@@ -1009,21 +1060,26 @@ public class ClapGenerator : IIncrementalGenerator
         writer.WriteLine();
         writer.WriteMultiLine(
             """
-            public static void DisplayError(string message)
+            public static void DisplayError(string message, string helpMessage)
             {
                 var previousColour = System.Console.ForegroundColor;
                 System.Console.ForegroundColor = System.ConsoleColor.Red;
-                System.Console.WriteLine($"{message}\n");
+                System.Console.WriteLine($"{message}");
                 System.Console.ForegroundColor = previousColour;
-                PrintHelpMessage();
+                System.Console.WriteLine(helpMessage);
             }
 
             private static void PrintHelpMessage() 
             {
+                System.Console.WriteLine(GetFormattedHelpMessage());
+            }
+
+            private static string GetFormattedHelpMessage() 
+            {
                 var executableName = System.IO.Path.GetFileNameWithoutExtension(Environment.GetCommandLineArgs()[0]);
                 if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
                     executableName += "[.exe]";
-                System.Console.WriteLine(HelpMessage.Replace("{{EXECUTABLE_NAME}}", executableName));
+                return HelpMessage.Replace("{{EXECUTABLE_NAME}}", executableName);
             }
             """);
     }

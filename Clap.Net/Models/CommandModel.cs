@@ -10,5 +10,6 @@ internal record CommandModel(
     string? Version,
     INamedTypeSymbol Symbol,
     SubCommandArgumentModel? SubCommandArgumentModel,
-    ArgumentModel[] Arguments
+    ArgumentModel[] Arguments,
+    bool IsSubCommand
 );
