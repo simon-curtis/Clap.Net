@@ -20,8 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Clap.Net\Clap.Net.csproj" OutputItemType="Analyzer">
-    </ProjectReference>
+    <ProjectReference Include="..\Clap.Net\Clap.Net.csproj" OutputItemType="Analyzer" />
   </ItemGroup>
 
 </Project>

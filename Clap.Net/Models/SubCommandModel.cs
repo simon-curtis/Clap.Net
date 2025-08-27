@@ -4,4 +4,4 @@ namespace Clap.Net.Models;
 
 internal record SubCommandModel(
     ISymbol Symbol, 
-    CommandModel[] Commands);
+    List<CommandModel> Commands);
