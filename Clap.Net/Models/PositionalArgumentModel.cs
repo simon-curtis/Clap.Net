@@ -7,6 +7,7 @@ internal record PositionalArgumentModel(
     ITypeSymbol MemberType,
     string VariableName,
     string? DefaultValue,
+    string? Help,
     bool Required,
     int Index
 ) : ArgumentModel(Symbol, MemberType, VariableName, Required, DefaultValue);

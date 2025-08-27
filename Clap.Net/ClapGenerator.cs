@@ -1,11 +1,13 @@
 using System.CodeDom.Compiler;
 using System.Collections.Immutable;
 using System.Text;
+using System.Xml.Linq;
 using Clap.Net.Extensions;
 using Clap.Net.Models;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
+// ReSharper disable LoopCanBeConvertedToQuery
 
 namespace Clap.Net;
 
@@ -156,12 +158,8 @@ public class ClapGenerator : IIncrementalGenerator
                 _ => false
             };
 
-            if (attributes.TryGetValue(nameof(CommandAttribute), out var command))
+            if (attributes.TryGetValue(nameof(CommandAttribute), out _))
             {
-                var name = command?.NamedArguments
-                    .FirstOrDefault(a => a.Key is nameof(CommandAttribute.Name))
-                    .Value.Value?.ToString() ?? member.Name;
-
                 subCommandArgumentModel = new SubCommandArgumentModel(
                     member,
                     memberType,
@@ -170,15 +168,18 @@ public class ClapGenerator : IIncrementalGenerator
             }
 
             var variableName = GetVariableName(member.Name.ToCamelCase());
+            var commentXml = ExtractSummary(member.GetDocumentationCommentXml());
 
             if (!attributes.TryGetValue(nameof(ArgAttribute), out var argAttribute))
             {
+                // Get the comment from the arg
                 arguments.Add(
                     new PositionalArgumentModel(
                         member,
                         memberType,
                         variableName,
                         defaultValue,
+                        commentXml,
                         isRequired,
                         positionalIndex++));
                 continue;
@@ -195,13 +196,15 @@ public class ClapGenerator : IIncrementalGenerator
                 _ => ArgAction.Set
             };
 
+            var helpText = argNamedArguments.GetOrDefault(nameof(ArgAttribute.Help)) as string ?? commentXml;
+
             ArgumentModel argument = @short is not null || @long is not null
                 ? new NamedArgumentModel(
                     member,
                     memberType,
                     variableName,
                     defaultValue,
-                    Help: argNamedArguments.GetOrDefault(nameof(ArgAttribute.Help)) as string,
+                    Help: helpText,
                     Short: @short,
                     Long: @long,
                     Env: argNamedArguments.GetOrDefault(nameof(ArgAttribute.Env)) as string,
@@ -209,7 +212,7 @@ public class ClapGenerator : IIncrementalGenerator
                     argAction,
                     isRequired)
                 : new PositionalArgumentModel(
-                    member, memberType, variableName, defaultValue, isRequired, positionalIndex++);
+                    member, memberType, variableName, defaultValue, helpText, isRequired, positionalIndex++);
 
             arguments.Add(argument);
         }
@@ -218,7 +221,7 @@ public class ClapGenerator : IIncrementalGenerator
             .ToDictionary(a => a.Key, a => a.Value.Value);
 
         var commentary = typeDeclarationSyntax is not null
-            ? ExtractSummary(typeDeclarationSyntax.ToFullString().AsSpan())
+            ? ExtractSummary(typeDeclarationSyntax)
             : null;
 
         return new CommandModel(
@@ -1010,11 +1013,29 @@ public class ClapGenerator : IIncrementalGenerator
         if (namedArguments.Any())
             sb.Append(" [OPTIONS]");
 
-        foreach (var positional in commandModel.Arguments.OfType<PositionalArgumentModel>())
-            sb.Append($" <{positional.Symbol.Name.ToSnakeCase()}:{positional.MemberType.ToDisplayString()}>");
+        var positionalArgs = commandModel.Arguments
+            .OfType<PositionalArgumentModel>().
+            ToArray();
+
+        foreach (var positional in positionalArgs)
+            sb.Append($" <{positional.Symbol.Name}>");
         sb.AppendLine();
 
         var table = new List<string?[]>();
+
+        if (positionalArgs.Length > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Arguments:");
+            foreach (var positional in positionalArgs)
+                table.Add([$"<{positional.Symbol.Name}>", positional.Help]);
+
+            var maxArgLength = table.Max(o => o[0]?.Length ?? 0);
+            foreach (var row in table)
+                sb.AppendLine($"  {row[0]?.PadRight(maxArgLength)}  {row[1]}");
+
+            table.Clear();
+        }
 
         foreach (var option in namedArguments)
         {
@@ -1037,10 +1058,10 @@ public class ClapGenerator : IIncrementalGenerator
         sb.AppendLine("Options:");
         foreach (var row in table)
             sb.AppendLine($"  {row[0]?.PadRight(maxColumnLength)}  {row[1]}");
+        table.Clear();
 
         if (subCommand is { Commands.Length: > 0 })
         {
-            table.Clear();
             foreach (var command in subCommand.Commands)
                 table.Add([command.Name, command.About]);
 
@@ -1085,6 +1106,42 @@ public class ClapGenerator : IIncrementalGenerator
     }
 
     private static readonly char[] AllowedCharacters = [' ', '\t', '\n', '\r', '&'];
+
+    private static (string About, string? LongAbout)? ExtractSummary(TypeDeclarationSyntax typeDecl)
+    {
+        // Get the XML doc trivia attached to the type
+        var trivia = typeDecl.GetLeadingTrivia()
+            .Select(t => t.GetStructure())
+            .OfType<DocumentationCommentTriviaSyntax>()
+            .FirstOrDefault();
+
+        if (trivia is null)
+            return null;
+
+        // Find the <summary> element
+        var summaryElement = trivia.Content
+            .OfType<XmlElementSyntax>()
+            .FirstOrDefault(e => e.StartTag.Name.LocalName.Text == "summary");
+
+        if (summaryElement is null)
+            return null;
+
+        // Extract the text inside <summary>
+        var lines = summaryElement.Content
+            .OfType<XmlTextSyntax>()
+            .SelectMany(x => x.TextTokens)
+            .Select(t => t.Text.Trim())
+            .Where(t => t.Length > 0)
+            .ToList();
+
+        if (lines.Count == 0)
+            return null;
+
+        return (
+            About: lines[0],
+            LongAbout: lines.Count == 1 ? null : string.Join("\n", lines)
+        );
+    }
 
     private static (string About, string? LongAbout)? ExtractSummary(ReadOnlySpan<char> source)
     {
@@ -1158,5 +1215,14 @@ public class ClapGenerator : IIncrementalGenerator
                 * Long About: {commandModel.LongAbout}
                 */
                 """;
+    }
+
+    private static string? ExtractSummary(string? xmlDocs)
+    {
+        if (string.IsNullOrWhiteSpace(xmlDocs))
+            return null;
+        
+        var doc = XDocument.Parse(xmlDocs);
+        return doc.Root?.Element("summary")?.Value.Trim();
     }
 }
