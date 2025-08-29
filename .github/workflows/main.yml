@@ -44,6 +44,11 @@ jobs:
         run: mkdir -p artifacts
 
       # Pack the NuGet package from the Clap.Net subfolder, output to ../artifacts (which is ./artifacts from the repo root)
+      - name: Build Release
+        working-directory: ./Clap.Net
+        run: dotnet build -c Release
+
+      # Pack the NuGet package from the Clap.Net subfolder, output to ../artifacts (which is ./artifacts from the repo root)
       - name: Pack NuGet package
         working-directory: ./Clap.Net
         run: dotnet pack -c Release -o ../artifacts -p:Version=${{ steps.version.outputs.version }}
