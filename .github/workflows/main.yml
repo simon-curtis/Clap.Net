@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      # Only run workflow when actual lib is changed
+      - '.github/workflows/main.yml'
       - 'Clap.Net/**'
 
 jobs:
