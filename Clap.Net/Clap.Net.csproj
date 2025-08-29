@@ -1,11 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
     <PropertyGroup>
         <TargetFramework>netstandard2.0</TargetFramework>
         <IncludeBuildOutput>true</IncludeBuildOutput>
         <Nullable>enable</Nullable>
-        <ImplicitUsings>true</ImplicitUsings>
-        <LangVersion>Preview</LangVersion>
+        <LangVersion>latest</LangVersion>
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
         <PackageReadmeFile>readme.md</PackageReadmeFile>
         <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
@@ -13,6 +11,7 @@
         <RepositoryType>git</RepositoryType>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <NoWarn>$(NoWarn);1591</NoWarn>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     </PropertyGroup>
 
     <ItemGroup>
@@ -21,12 +20,12 @@
         <PackageReference Include="OneOf" Version="3.0.271" />
     </ItemGroup>
 
-    <!-- This ensures the library will be packaged as a source generator when we use `dotnet pack` -->
     <ItemGroup>
         <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true"
-            PackagePath="analyzers/dotnet/cs" Visible="false" />
+              PackagePath="analyzers/dotnet/cs/$(AssemblyName).dll" Visible="false" />
+        <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true"
+              PackagePath="lib/netstandard2.0/$(AssemblyName).dll" Visible="false" />
         <None Include="../readme.md" Pack="true" PackagePath="\" />
         <None Include="LICENSE.txt" Pack="true" PackagePath="\" />
     </ItemGroup>
-
 </Project>

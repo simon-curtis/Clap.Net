@@ -1,5 +1,7 @@
-﻿using System.CodeDom.Compiler;
+﻿using System;
+using System.CodeDom.Compiler;
 using System.Reflection;
+using Clap.Net.Extensions;
 using Microsoft.CodeAnalysis;
 
 namespace Clap.Net.Serialisation;
@@ -12,7 +14,7 @@ internal record TypeSyntaxBuilder : IDisposable
     {
         _writer = writer;
         WriteAccessibilty(symbol.DeclaredAccessibility);
-        _writer.WriteLine($" partial {symbol.TypeKind.ToString().ToLower()} {symbol.Name}");
+        _writer.WriteLine($" partial {symbol.GetTypeKeyword()} {symbol.Name}");
         writer.WriteLine('{');
         _writer.Indent++;
     }

@@ -1,5 +1,7 @@
 ﻿using System.CodeDom.Compiler;
+using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Reflection;
 using System.Text;
 using Clap.Net.Extensions;
