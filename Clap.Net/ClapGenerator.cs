@@ -1,5 +1,6 @@
 using System.CodeDom.Compiler;
 using System.Collections.Immutable;
+using System.IO;
 using System.Text;
 using Clap.Net.Generators;
 using Clap.Net.Models;
@@ -12,7 +13,7 @@ using Microsoft.CodeAnalysis.Text;
 
 namespace Clap.Net;
 
-[Generator]
+[Generator(LanguageNames.CSharp)]
 public class ClapGenerator : IIncrementalGenerator
 {
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -70,7 +71,7 @@ public class ClapGenerator : IIncrementalGenerator
         var writer = new IndentedTextWriter(textWriter);
         var syntaxBuilder = new SyntaxBuilder(writer);
 
-        SubCommandCodeGenerator.GenerateSourceCode(writer, subCommand);
+        SubCommandCodeGenerator.GenerateSourceCode(writer, syntaxBuilder, subCommand);
 
         writer.Flush();
         spc.AddSource(

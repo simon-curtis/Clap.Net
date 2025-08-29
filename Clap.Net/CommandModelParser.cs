@@ -1,4 +1,7 @@
-﻿using System.Xml.Linq;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Xml.Linq;
 using Clap.Net.Extensions;
 using Clap.Net.Models;
 using Microsoft.CodeAnalysis;
@@ -134,12 +137,6 @@ public static class CommandModelParser
             : null;
 
         return new CommandModel(
-            Kind: commandCandidateSymbol switch
-            {
-                { TypeKind: TypeKind.Class } => commandCandidateSymbol.IsRecord ? "record" : "class",
-                { TypeKind: TypeKind.Struct } => commandCandidateSymbol.IsRecord ? "record struct" : "struct",
-                _ => "class"
-            },
             Name: args.GetOrDefault(nameof(CommandAttribute.Name)) as string ??
                   commandCandidateSymbol.Name.ToSnakeCase(),
             About: args.GetOrDefault(nameof(CommandAttribute.About)) as string ?? commentary?.About,

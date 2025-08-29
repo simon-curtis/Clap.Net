@@ -1,4 +1,6 @@
-﻿using Clap.Net.Models;
+﻿using System.Collections.Generic;
+using System.Linq;
+using Clap.Net.Models;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
