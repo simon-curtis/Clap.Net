@@ -1,7 +1,8 @@
-﻿using Microsoft.CodeAnalysis;
+﻿using System.Collections.Generic;
+using Microsoft.CodeAnalysis;
 
 namespace Clap.Net.Models;
 
 internal record SubCommandModel(
-    ISymbol Symbol, 
+    INamedTypeSymbol Symbol, 
     List<CommandModel> Commands);

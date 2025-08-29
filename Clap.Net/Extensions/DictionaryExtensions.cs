@@ -1,4 +1,6 @@
-﻿namespace Clap.Net.Extensions;
+﻿using System.Collections.Generic;
+
+namespace Clap.Net.Extensions;
 
 public static class DictionaryExtensions
 {

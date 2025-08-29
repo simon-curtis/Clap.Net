@@ -8,6 +8,19 @@ Clap.Net is an attempt to port clap-rs over to .NET, with almost feature-parity,
 dotnet add package Clap.Net
 ```
 
+## Notes to the user
+
+If you are having issues with generation and want to see what's going on, sometimes it's not enough to rely on the
+in-editor generated file, add this to your project to see the MSBuild-generated files.
+
+```xml
+<PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>bin/Generated</CompilerGeneratedFilesOutputPath>
+</PropertyGroup>
+```
+
+
 ## Usage
 
 Define your command-line interface using classes and properties. Use attributes to specify the command-line options and arguments.

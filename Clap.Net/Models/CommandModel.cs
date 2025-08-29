@@ -3,7 +3,6 @@
 namespace Clap.Net.Models;
 
 internal record CommandModel(
-    string Kind,
     string? Name,
     string? About,
     string? LongAbout,
