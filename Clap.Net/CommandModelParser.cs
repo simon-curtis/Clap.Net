@@ -145,6 +145,9 @@ public static class CommandModelParser
             Symbol: commandCandidateSymbol,
             SubCommandArgumentModel: subCommandArgumentModel,
             Arguments: [.. arguments],
+            IsCliCommand: commandCandidateSymbol
+                .GetAttributes()
+                .Any(attr => attr.AttributeClass?.Name is nameof(CliAttribute)),
             IsSubCommand: commandCandidateSymbol.BaseType?
                 .GetAttributes()
                 .Any(attr => attr.AttributeClass?.Name is nameof(SubCommandAttribute)) is true);
