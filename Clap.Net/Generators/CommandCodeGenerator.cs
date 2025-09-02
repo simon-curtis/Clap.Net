@@ -433,9 +433,12 @@ internal static class CommandCodeGenerator
         SubCommandModel subCommand)
     {
         var type = subCommand.Symbol.ToDisplayString(FullNameDisplayString);
-        writer.WriteLine($"// Setting subcommand '{type}'");
-        writer.WriteLine("// Command switching swallows the rest of the arguments but previously");
-        writer.WriteLine("// parsed arguments still get applied to the model");
+        writer.WriteMultiLine(
+            $"""
+            // Setting subcommand '{type}'
+            // Command switching swallows the rest of the arguments but previously
+            // parsed arguments still get applied to the model
+            """);
 
         var names = new string[subCommand.Commands.Count];
         for (var i = 0; i < subCommand.Commands.Count; i++)
@@ -702,7 +705,7 @@ internal static class CommandCodeGenerator
         switch (argument)
         {
             case { Action: ArgAction.Count }:
-                writer.WriteLine(
+                writer.WriteMultiLine(
                     $$"""
                       if (int.TryParse(value, out var i))
                       {
@@ -748,7 +751,7 @@ internal static class CommandCodeGenerator
     private static void WriteArraySetter(IndentedTextWriter writer, string variableName, ITypeSymbol elementType)
     {
         var childType = elementType.ToDisplayString(FullNameDisplayString);
-        writer.WriteLine(
+        writer.WriteMultiLine(
             $$"""
               var builder = System.Collections.Immutable.ImmutableArray.CreateBuilder<{{childType}}>();
               while (index < tokens.Length && tokens[index] is Clap.Net.ValueLiteral(var @____value)) 
