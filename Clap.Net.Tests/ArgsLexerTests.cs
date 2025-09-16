@@ -2,12 +2,12 @@ using Shouldly;
 
 namespace Clap.Net.Tests;
 
-public class LexerTests
+public class ArgsLexerTests
 {
     [Fact]
     public void ShortFlag_IsReturned_WhenGivenAShortFlag()
     {
-        var tokens = Lexer.Lex(["-a"]);
+        var tokens = ArgsLexer.Lex(["-a"]);
         tokens.Length.ShouldBe(1);
         tokens[0].ShouldBeOfType<ShortFlag>();
     }
@@ -15,7 +15,7 @@ public class LexerTests
     [Fact]
     public void ShortFlags_AreReturned_WhenGivenACoupleOfShortFlags()
     {
-        var tokens = Lexer.Lex(["-a", "-b"]);
+        var tokens = ArgsLexer.Lex(["-a", "-b"]);
         tokens.Length.ShouldBe(2);
         tokens[0].ShouldBeOfType<ShortFlag>();
         tokens[1].ShouldBeOfType<ShortFlag>();
@@ -24,7 +24,7 @@ public class LexerTests
     [Fact]
     public void LongFlag_IsReturned_WhenGivenALongFlag()
     {
-        var tokens = Lexer.Lex(["--apple"]);
+        var tokens = ArgsLexer.Lex(["--apple"]);
         tokens.Length.ShouldBe(1);
         tokens[0].ShouldBeOfType<LongFlag>();
     }
@@ -32,7 +32,7 @@ public class LexerTests
     [Fact]
     public void CompoundFlag_IsReturned_WhenGivenACompoundFlag()
     {
-        Span<IToken> tokens = Lexer.Lex(["-abc"]);
+        Span<IToken> tokens = ArgsLexer.Lex(["-abc"]);
         tokens.Length.ShouldBe(1);
         var compound = tokens[0].ShouldBeOfType<CompoundFlag>();
         compound.Chars.Length.ShouldBe(3);
@@ -44,7 +44,7 @@ public class LexerTests
     [Fact]
     public void ValueLiteral_IsReturned_WhenGivenAStringLiteral()
     {
-        var tokens = Lexer.Lex(["apple"]);
+        var tokens = ArgsLexer.Lex(["apple"]);
         tokens.Length.ShouldBe(1);
         var compound = tokens[0].ShouldBeOfType<ValueLiteral>();
         compound.Value.ShouldBe("apple");
@@ -53,7 +53,7 @@ public class LexerTests
     [Fact]
     public void ValueLiteral_IsReturned_WhenGivenAIntLiteral()
     {
-        var tokens = Lexer.Lex(["123"]);
+        var tokens = ArgsLexer.Lex(["123"]);
         tokens.Length.ShouldBe(1);
         var compound = tokens[0].ShouldBeOfType<ValueLiteral>();
         compound.Value.ShouldBe("123");

@@ -93,7 +93,7 @@ internal static class CommandCodeGenerator
             $$"""
               public static {{fullName}} Parse(System.ReadOnlySpan<string> args)
               {
-                  var tokens = Clap.Net.Lexer.Lex(args);
+                  var tokens = Clap.Net.ArgsLexer.Lex(args);
                   return Parse(tokens);
               }
               """);
@@ -143,7 +143,7 @@ internal static class CommandCodeGenerator
             "TryParse",
             ["System.ReadOnlySpan<string> args"]);
 
-        writer.WriteLine("var tokens = Clap.Net.Lexer.Lex(args);");
+        writer.WriteLine("var tokens = Clap.Net.ArgsLexer.Lex(args);");
         writer.WriteLine("return TryParse(tokens);");
     }
 
@@ -620,7 +620,7 @@ internal static class CommandCodeGenerator
             {
                 var previousColour = System.Console.ForegroundColor;
                 System.Console.ForegroundColor = System.ConsoleColor.Red;
-                System.Console.WriteLine($"{message}");
+                System.Console.WriteLine(message);
                 System.Console.ForegroundColor = previousColour;
                 System.Console.WriteLine(helpMessage);
             }

@@ -3,7 +3,7 @@ using System.Collections.Immutable;
 
 namespace Clap.Net;
 
-public static class Lexer
+public static class ArgsLexer
 {
     public static IToken[] Lex(ReadOnlySpan<string> args)
     {
