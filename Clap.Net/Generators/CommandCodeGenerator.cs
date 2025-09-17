@@ -625,7 +625,7 @@ internal static class CommandCodeGenerator
                 System.Console.WriteLine(helpMessage);
             }
 
-            private static void PrintHelpMessage() 
+            public static void PrintHelpMessage() 
             {
                 System.Console.WriteLine(GetFormattedHelpMessage());
             }
