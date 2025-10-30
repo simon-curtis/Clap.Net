@@ -4,10 +4,10 @@ using System;
 namespace Clap.Net;
 
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Property | AttributeTargets.Field, Inherited = false)]
-public sealed class CommandAttribute() : Attribute
+public sealed class CommandAttribute : Attribute
 {
     /// <summary>
-    /// package name (if on Parser container), variant name (if on Subcommand variant)
+    /// package name (if on Parser container), variant name (if on SubCommand variant)
     /// </summary>
     public string? Name { get; init; }
 
@@ -68,18 +68,13 @@ public sealed class CommandAttribute() : Attribute
     public string? RenameAllEnv { get; init; }
 
     /// <summary>
-    /// Delegates to the variant for more subcommands (must have Subcommand attribute)
+    /// Delegates to the variant for more subcommands (must have SubCommand attribute)
     /// </summary>
     public bool Flatten { get; init; }
-
-    /// <summary>
-    /// Nest subcommands under the current set of subcommands (must implement Subcommand)
-    /// </summary>
-    public bool Subcommand { get; init; }
 }
 
 [Flags]
 public enum Traits
 {
-    Subcommand
+    SubCommand
 }

@@ -17,7 +17,7 @@ public partial class ImageConverter
     [Arg(Short = 'v', Long= "verbose")]
     public bool Verbose { get; set; }
 
-    [Command(Subcommand = true)]
+    [Command]
     public ImageConverterCommands? Command { get; init; }
 }
 
