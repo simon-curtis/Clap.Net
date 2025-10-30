@@ -249,7 +249,7 @@ public partial class DoubleRequiredPositionalApp
 [Command]
 public partial class SubCommandApp
 {
-    [Command(Subcommand = true)]
+    [Command]
     public required SubCommandCommand Command { get; init; }
 }
 
@@ -343,7 +343,7 @@ public partial class ParentApp
     [Arg(Short = 'd')]
     public bool Dodgems { get; init; }
 
-    [Command(Subcommand = true)]
+    [Command]
     public required ParentCommand Command { get; init; }
 }
 
@@ -353,7 +353,7 @@ public partial class ParentWithoutChildApp
     [Arg(Short = 'd')]
     public bool Dodgems { get; init; }
 
-    [Command(Subcommand = true)]
+    [Command]
     public ParentCommand? Command { get; init; }
 }
 

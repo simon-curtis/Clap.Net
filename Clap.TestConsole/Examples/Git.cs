@@ -14,7 +14,7 @@ public partial struct Git
     [Arg(Short = 'v', Help = "Prints verbose output")]
     public bool Verbose { get; init; }
 
-    [Command(Subcommand = true)]
+    [Command]
     public required Commands Command { get; init; }
 }
 
