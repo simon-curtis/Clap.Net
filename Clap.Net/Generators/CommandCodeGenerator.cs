@@ -632,7 +632,7 @@ internal static class CommandCodeGenerator
 
             private static string GetFormattedHelpMessage() 
             {
-                var executableName = System.IO.Path.GetFileNameWithoutExtension(Environment.GetCommandLineArgs()[0]);
+                var executableName = System.IO.Path.GetFileNameWithoutExtension(System.Environment.GetCommandLineArgs()[0]);
                 if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
                     executableName += "[.exe]";
                 return HelpMessage.Replace("{{EXECUTABLE_NAME}}", executableName);
