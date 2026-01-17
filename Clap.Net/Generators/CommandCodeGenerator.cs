@@ -415,7 +415,7 @@ internal static class CommandCodeGenerator
             && value is { Negation: true, Long: { } l })
         {
             writer.WriteLine($"// Setting attribute '{fullName}.{value.Symbol.Name}'");
-            writer.WriteLine($"case NegatedFlag(Clap.Net.LongFlag(\"{l}\")):");
+            writer.WriteLine($"case Clap.Net.NegatedFlag(Clap.Net.LongFlag(\"{l}\")):");
             writer.WriteLine("{");
             writer.Indent++;
             writer.WriteLine("index++;");
