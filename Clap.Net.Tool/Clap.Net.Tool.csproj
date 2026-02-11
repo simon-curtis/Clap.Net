@@ -10,10 +10,14 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>clap</ToolCommandName>
     <PackageId>Clap.Net.Tool</PackageId>
-    <Version>1.0.0</Version>
-    <Authors>Clap.Net</Authors>
-    <Description>CLI tool for generating OpenCLI JSON schemas from Clap.Net command definitions</Description>
+    <Version>0.2.0</Version>
+    <Authors>Simon Curtis</Authors>
+    <Description>CLI tool for generating shell completion scripts (Bash, Zsh, Fish, PowerShell) and OpenCLI JSON schemas from Clap.Net command definitions</Description>
+    <PackageTags>cli;shell;completion;bash;zsh;fish;powershell;opencli</PackageTags>
+    <PackageProjectUrl>https://github.com/simon-curtis/Clap.Net</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/simon-curtis/Clap.Net</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
   <ItemGroup>

@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/main.yml'
       - 'Clap.Net/**'
+      - 'Clap.Net.Tool/**'
 
 jobs:
   release:
@@ -34,10 +35,10 @@ jobs:
         working-directory: ./Clap.Net
         run: dotnet test --configuration Release --no-restore --verbosity normal
       
-      # Generate version string (0.1.<run_number>-beta)
+      # Generate version string (0.2.<run_number>)
       - name: Set version number
         id: version
-        run: echo "version=0.1.${GITHUB_RUN_NUMBER}-beta" >> $GITHUB_OUTPUT
+        run: echo "version=0.2.${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 
       # Ensure the artifacts folder exists at the repository root
       - name: Create artifacts folder
@@ -49,14 +50,22 @@ jobs:
         run: dotnet build -c Release
 
       # Pack the NuGet package from the Clap.Net subfolder, output to ../artifacts (which is ./artifacts from the repo root)
-      - name: Pack NuGet package
+      - name: Pack Clap.Net package
         working-directory: ./Clap.Net
         run: dotnet pack -c Release -o ../artifacts -p:Version=${{ steps.version.outputs.version }}
 
-      # Optional: Verify the package file exists and follows the expected naming pattern
-      - name: List generated package files
-        run: ls -l artifacts/Clap.Net.*.nupkg
+      # Pack the Clap.Net.Tool package
+      - name: Pack Clap.Net.Tool package
+        working-directory: ./Clap.Net.Tool
+        run: dotnet pack -c Release -o ../artifacts -p:Version=${{ steps.version.outputs.version }}
 
-      # Push the NuGet package to NuGet.org using the secret API key scoped to Clap.Net
-      - name: Publish NuGet package
-        run: dotnet nuget push artifacts/Clap.Net.*.nupkg -k ${{ secrets.NUGET_CLAP_NET_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
+      # Optional: Verify the package files exist and follow the expected naming pattern
+      - name: List generated package files
+        run: ls -l artifacts/*.nupkg
+
+      # Push the NuGet packages to NuGet.org using the secret API key
+      - name: Publish Clap.Net package
+        run: dotnet nuget push artifacts/Clap.Net.0.*.nupkg -k ${{ secrets.NUGET_CLAP_NET_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Publish Clap.Net.Tool package
+        run: dotnet nuget push artifacts/Clap.Net.Tool.*.nupkg -k ${{ secrets.NUGET_CLAP_NET_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
