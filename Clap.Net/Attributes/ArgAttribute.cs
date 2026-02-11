@@ -45,7 +45,28 @@ public interface IValueEnum
 {
     IValueEnum[] ValueVariants();
     PossibleValue? ToPossibleValue();
-    OneOf.OneOf<IValueEnum, Exception> FromStr();
+    ValueEnumResult FromStr();
+}
+
+public class ValueEnumResult
+{
+    private readonly IValueEnum? _value;
+    private readonly Exception? _error;
+
+    private ValueEnumResult(IValueEnum? value, Exception? error)
+    {
+        _value = value;
+        _error = error;
+    }
+
+    public bool IsSuccess => _value is not null;
+    public bool IsError => _error is not null;
+
+    public IValueEnum Value => _value ?? throw new InvalidOperationException("Result is not Success");
+    public Exception Error => _error ?? throw new InvalidOperationException("Result is not Error");
+
+    public static ValueEnumResult Success(IValueEnum value) => new(value, null);
+    public static ValueEnumResult Failure(Exception error) => new(null, error);
 }
 
 public record PossibleValue(string Name, string? Help = null);

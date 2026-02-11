@@ -2,7 +2,8 @@ using Clap.Net;
 
 namespace Clap.TestConsole.Examples;
 
-[Command(Name = "image-converter", About = "My app is pretty cool!")]
+[Cli]
+[Command(Name = "image-converter", About = "My app is pretty cool!", Version = "2.0.0")]
 public partial class ImageConverter
 {
     [Arg(Help = "The path of the image to convert")]

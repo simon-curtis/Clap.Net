@@ -4,26 +4,18 @@ using System.Reflection;
 using Clap.Net.Extensions;
 using Clap.Net.Models;
 using Clap.Net.Serialisation;
-using Microsoft.CodeAnalysis;
 
 namespace Clap.Net.Generators;
 
 internal static class SubCommandCodeGenerator
 {
-    private static readonly SymbolDisplayFormat FullNameDisplayString =
-        new(
-            typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
-            miscellaneousOptions: SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier,
-            genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters);
-
     public static void GenerateSourceCode(
         IndentedTextWriter writer,
         SyntaxBuilder syntaxBuilder,
         SubCommandModel commandModel)
     {
         var (symbol, commands) = commandModel;
-        var typeName = symbol.Name;
-        var fullName = symbol.ToDisplayString(FullNameDisplayString);
+        var fullName = symbol.ToDisplayString(CodeGeneratorConstants.FullNameDisplayFormat);
 
         writer.WriteLine("#nullable enable");
         writer.WriteLine();
@@ -36,9 +28,14 @@ internal static class SubCommandCodeGenerator
             : null;
 
         using var typeBuilder = syntaxBuilder.TypeDefinition(commandModel.Symbol);
+
+        var resultClassName = ParseResultGenerator.CreateResultClassName(fullName);
+        ParseResultGenerator.GenerateParseResultClass(writer, fullName, resultClassName);
+        writer.WriteLine();
+
         using var method = typeBuilder.Method(
             BindingFlags.Public | BindingFlags.Static,
-            $"Clap.Net.Models.ParseResult<{fullName}>",
+            resultClassName,
             "Resolve",
             ["System.ReadOnlySpan<Clap.Net.IToken> tokens"]);
 
@@ -60,7 +57,7 @@ internal static class SubCommandCodeGenerator
                            ?.ToString()
                        ?? command.Symbol.Name.ToSnakeCase();
 
-            var commandFullName = command.Symbol.ToDisplayString(FullNameDisplayString);
+            var commandFullName = command.Symbol.ToDisplayString(CodeGeneratorConstants.FullNameDisplayFormat);
             writer.WriteLine(
                 $"Clap.Net.ValueLiteral(\"{name}\") => {commandFullName}.TryParse(tokens[1..]).ChangeType<{fullName}>(),");
         }

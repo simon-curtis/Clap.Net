@@ -9,5 +9,7 @@ internal record PositionalArgumentModel(
     string? DefaultValue,
     string? Help,
     bool Required,
-    int Index
+    int Index,
+    ITypeSymbol? ValueParser = null,
+    System.Collections.Immutable.ImmutableArray<AttributeData> ValidationAttributes = default
 ) : ArgumentModel(Symbol, MemberType, VariableName, Required, DefaultValue);

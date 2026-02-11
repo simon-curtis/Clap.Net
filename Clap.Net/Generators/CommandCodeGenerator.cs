@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Reflection;
-using System.Text;
 using Clap.Net.Extensions;
 using Clap.Net.Models;
 using Clap.Net.Serialisation;
@@ -13,11 +12,34 @@ namespace Clap.Net.Generators;
 
 internal static class CommandCodeGenerator
 {
-    private static readonly SymbolDisplayFormat FullNameDisplayString =
-        new(
-            typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
-            miscellaneousOptions: SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier,
-            genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters);
+    /// <summary>
+    /// Validates that an environment variable name contains only safe characters.
+    /// Throws if the name contains potentially dangerous characters that could lead to code injection.
+    /// </summary>
+    private static void ValidateEnvironmentVariableName(string envVarName, string argumentName)
+    {
+        if (string.IsNullOrWhiteSpace(envVarName))
+            return;
+
+        // Environment variable names should only contain alphanumeric characters and underscores
+        foreach (var c in envVarName)
+        {
+            if (!char.IsLetterOrDigit(c) && c != '_')
+            {
+                throw new System.InvalidOperationException(
+                    $"Invalid environment variable name '{envVarName}' for argument '{argumentName}'. " +
+                    "Environment variable names must contain only letters, digits, and underscores.");
+            }
+        }
+
+        // Ensure it doesn't start with a digit
+        if (char.IsDigit(envVarName[0]))
+        {
+            throw new System.InvalidOperationException(
+                $"Invalid environment variable name '{envVarName}' for argument '{argumentName}'. " +
+                "Environment variable names cannot start with a digit.");
+        }
+    }
 
     public static void GenerateSourceCode(
         IndentedTextWriter writer,
@@ -29,7 +51,7 @@ internal static class CommandCodeGenerator
         var namedArgs = commandModel.Arguments.OfType<NamedArgumentModel>().ToArray();
         var positionalArgs = commandModel.Arguments.OfType<PositionalArgumentModel>().ToArray();
 
-        var fullName = commandModel.Symbol.ToDisplayString(FullNameDisplayString);
+        var fullName = commandModel.Symbol.ToDisplayString(CodeGeneratorConstants.FullNameDisplayFormat);
         var subCommand = commandModel.SubCommandArgumentModel is { } c
             ? FindSubCommand(c.MemberType, subCommandModels)
             : null;
@@ -48,9 +70,12 @@ internal static class CommandCodeGenerator
         writer.WriteLine("private const string HelpMessage = ");
         writer.Indent++;
         writer.WriteLine("\"\"\"");
-        writer.WriteMultiLine(GenerateHelpMessage(commandModel, subCommand, namedArgs, positionalArgs));
+        writer.WriteMultiLine(HelpMessageGenerator.GenerateHelpMessage(commandModel, subCommand, namedArgs, positionalArgs));
         writer.WriteLine("\"\"\";");
         writer.Indent--;
+        writer.WriteLine();
+
+        GenerateParseResultClass(writer, fullName);
         writer.WriteLine();
 
         GenerateSpanParseMethod(writer, fullName);
@@ -87,12 +112,26 @@ internal static class CommandCodeGenerator
         writer.WriteLine();
     }
 
+    private static void GenerateParseResultClass(IndentedTextWriter writer, string fullName)
+    {
+        var resultClassName = ParseResultGenerator.CreateResultClassName(fullName);
+        ParseResultGenerator.GenerateParseResultClass(writer, fullName, resultClassName);
+    }
+
     private static void GenerateSpanParseMethod(IndentedTextWriter writer, string fullName)
     {
         writer.WriteMultiLine(
             $$"""
               public static {{fullName}} Parse(System.ReadOnlySpan<string> args)
               {
+                  // Protect against DoS attacks with excessive argument counts
+                  const int MaxTotalArguments = 50000;
+                  if (args.Length > MaxTotalArguments)
+                  {
+                      throw new System.ArgumentException(
+                          $"Total argument count ({args.Length}) exceeds maximum of {MaxTotalArguments}");
+                  }
+
                   var tokens = Clap.Net.ArgsLexer.Lex(args);
                   return Parse(tokens);
               }
@@ -105,27 +144,26 @@ internal static class CommandCodeGenerator
             $$"""
               public static {{fullName}} Parse(System.ReadOnlySpan<Clap.Net.IToken> tokens)
               {
-                  switch (TryParse(tokens))
+                  var parseResult = TryParse(tokens);
+
+                  if (parseResult.IsSuccess)
+                      return parseResult.Command;
+
+                  if (parseResult.IsVersion)
                   {
-                      case { IsT0: true, AsT0: var result }:
-                          return result;
-
-                      case { IsT2: true, AsT2: { Version: var version } }:
-                          System.Console.WriteLine(version);
-                          System.Environment.Exit(0);
-                          break;
-
-                      case { IsT3: true, AsT3: { Message: var message, HelpMessage: var helpMessage } }:
-                          DisplayError(message, helpMessage);
-                          System.Environment.Exit(0);
-                          break;
-
-                      // Includes ShowHelp
-                      default:
-                          PrintHelpMessage();
-                          System.Environment.Exit(0);
-                          break;
+                      System.Console.WriteLine(parseResult.Version.Version);
+                      System.Environment.Exit(0);
                   }
+
+                  if (parseResult.IsError)
+                  {
+                      DisplayError(parseResult.Error.Message, parseResult.Error.HelpMessage);
+                      System.Environment.Exit(0);
+                  }
+
+                  // IsHelp
+                  PrintHelpMessage();
+                  System.Environment.Exit(0);
 
                   return default!; // Just to shut the compiler up
               }
@@ -137,9 +175,11 @@ internal static class CommandCodeGenerator
         IndentedTextWriter writer,
         string fullName)
     {
+        var resultClassName = ParseResultGenerator.CreateResultClassName(fullName);
+
         using var method = typeBuilder.Method(
             BindingFlags.Public | BindingFlags.Static,
-            $"Clap.Net.Models.ParseResult<{fullName}>",
+            resultClassName,
             "TryParse",
             ["System.ReadOnlySpan<string> args"]);
 
@@ -157,9 +197,11 @@ internal static class CommandCodeGenerator
         string fullName,
         SubCommandModel? subCommand)
     {
+        var resultClassName = ParseResultGenerator.CreateResultClassName(fullName);
+
         using var method = typeBuilder.Method(
             BindingFlags.Public | BindingFlags.Static,
-            $"Clap.Net.Models.ParseResult<{fullName}>",
+            resultClassName,
             "TryParse",
             ["System.ReadOnlySpan<Clap.Net.IToken> tokens"]);
 
@@ -205,10 +247,10 @@ internal static class CommandCodeGenerator
             if (arg.Required) writer.Write(" required");
             writer.WriteLine(" named argument");
 
-            var type = arg.MemberType.ToDisplayString(FullNameDisplayString);
+            var type = arg.MemberType.ToDisplayString(CodeGeneratorConstants.FullNameDisplayFormat);
             if (arg.MemberType is INamedTypeSymbol { Name: "IEnumerable" } namedTypeSymbol)
             {
-                var elementType = namedTypeSymbol.TypeArguments.First().ToDisplayString(FullNameDisplayString);
+                var elementType = namedTypeSymbol.TypeArguments.First().ToDisplayString(CodeGeneratorConstants.FullNameDisplayFormat);
                 type = $"System.Collections.Generic.List<{elementType}>";
             }
 
@@ -219,16 +261,23 @@ internal static class CommandCodeGenerator
                 _ => $"({type})default"
             };
 
-            var defaultValue = arg.Env is { } env
-                ? $"Environment.GetEnvironmentVariable(\"{env}\") is {{ }} env ? ({type}){GetArgConversion(arg.MemberType, "env")} : {initialValue}"
-                : initialValue;
+            string defaultValue;
+            if (arg.Env is { } env)
+            {
+                ValidateEnvironmentVariableName(env, arg.Symbol.Name);
+                defaultValue = $"Environment.GetEnvironmentVariable(\"{env}\") is {{ }} env ? ({type}){ArgumentConversionHelper.GetArgConversion(arg.MemberType, "env", arg.ValueParser)} : {initialValue}";
+            }
+            else
+            {
+                defaultValue = initialValue;
+            }
 
             writer.WriteLine($"Clap.Net.Models.FieldValue<{type}> {arg.VariableName} = {defaultValue};");
         }
 
         foreach (var arg in commandModel.Arguments.OfType<PositionalArgumentModel>())
         {
-            var type = arg.MemberType.ToDisplayString(FullNameDisplayString);
+            var type = arg.MemberType.ToDisplayString(CodeGeneratorConstants.FullNameDisplayFormat);
             var defaultValue = arg switch
             {
                 { DefaultValue: { } value } => $"({type}){value}",
@@ -247,16 +296,12 @@ internal static class CommandCodeGenerator
         {
             writer.WriteLine();
 
-            var type = subCommandArgument.MemberType.ToDisplayString(FullNameDisplayString);
-            var defaultValue = subCommandArgument switch
-            {
-                { DefaultValue: { } value } => $"({type}){value}",
-                { IsRequired: true } => "null",
-                _ => $"({type})default!"
-            };
+            var type = subCommandArgument.MemberType.ToDisplayString(CodeGeneratorConstants.FullNameDisplayFormat).TrimEnd('?');
+            var simpleTypeName = type.Substring(type.LastIndexOf('.') + 1);
+            var subCommandResultClassName = $"{simpleTypeName.Replace('<', '_').Replace('>', '_')}ParseResult";
 
             method.SingleLineComment($"SubCommand '{subCommandArgument.Symbol.Name}'");
-            writer.WriteLine($"Clap.Net.Models.ParseResult<{type}>? @___subCommand = {defaultValue};");
+            writer.WriteLine($"{type}.{subCommandResultClassName}? @__clapgen_subCommand = null;");
         }
 
         writer.WriteLine();
@@ -310,7 +355,7 @@ internal static class CommandCodeGenerator
             obj.WriteField(arg.Symbol.Name, $"{arg.VariableName}.Value");
 
         if (commandModel.SubCommandArgumentModel is not null)
-            obj.WriteField(commandModel.SubCommandArgumentModel.Symbol.Name, "@___subCommand.AsT0");
+            obj.WriteField(commandModel.SubCommandArgumentModel.Symbol.Name, "@__clapgen_subCommand?.Command");
     }
 
     private static void GenerateRequiredArgumentChecks(
@@ -361,7 +406,7 @@ internal static class CommandCodeGenerator
         if (commandModel.SubCommandArgumentModel is not { IsRequired: true })
             return;
 
-        using (syntaxBuilder.If("@___subCommand is null"))
+        using (syntaxBuilder.If("@__clapgen_subCommand is null"))
             writer.WriteLine(
                 $"return new Clap.Net.Models.ParseError($\"The subcommand was not provided:\\n{commandModel.SubCommandArgumentModel.Symbol.Name}\", GetFormattedHelpMessage());");
     }
@@ -432,7 +477,7 @@ internal static class CommandCodeGenerator
         SwitchStatementSyntaxBuilder syntaxBuilder,
         SubCommandModel subCommand)
     {
-        var type = subCommand.Symbol.ToDisplayString(FullNameDisplayString);
+        var type = subCommand.Symbol.ToDisplayString(CodeGeneratorConstants.FullNameDisplayFormat);
         writer.WriteMultiLine(
             $"""
             // Setting subcommand '{type}'
@@ -448,20 +493,20 @@ internal static class CommandCodeGenerator
 
         using (var resolveSwitch = caseBlock.SwitchStatement($"{type}.Resolve(tokens[index..])"))
         {
-            using (resolveSwitch.Case("{ IsT0: true } t0"))
+            using (resolveSwitch.Case("{ IsSuccess: true } result"))
             {
-                caseBlock.Assignment("@___subCommand", "t0.AsT0");
+                caseBlock.Assignment("@__clapgen_subCommand", "result.Command");
                 caseBlock.Break();
             }
 
-            using (resolveSwitch.Case("{ IsT1: true } t1"))
-                writer.WriteLine("return t1.AsT1;");
+            using (resolveSwitch.Case("{ IsHelp: true } help"))
+                writer.WriteLine("return help.Help;");
 
-            using (resolveSwitch.Case("{ IsT2: true } t2"))
-                writer.WriteLine("return t2.AsT2;");
+            using (resolveSwitch.Case("{ IsVersion: true } version"))
+                writer.WriteLine("return version.Version;");
 
-            using (resolveSwitch.Case("{ IsT3: true } t3"))
-                writer.WriteLine("return t3.AsT3;");
+            using (resolveSwitch.Case("{ IsError: true } error"))
+                writer.WriteLine("return error.Error;");
         }
 
         writer.WriteLine();
@@ -527,89 +572,7 @@ internal static class CommandCodeGenerator
     {
         var memberType = member.ToDisplayString().TrimEnd('?');
         return subCommandModels.FirstOrDefault(sc =>
-            memberType == sc?.Symbol.ToDisplayString(FullNameDisplayString).TrimEnd('?'));
-    }
-
-    private static string GenerateHelpMessage(
-        CommandModel commandModel,
-        SubCommandModel? subCommand,
-        NamedArgumentModel[] namedArguments,
-        PositionalArgumentModel[] positionalArgs)
-    {
-        var sb = new StringBuilder();
-
-        var about = commandModel.LongAbout ?? commandModel.About;
-        if (!string.IsNullOrEmpty(about))
-        {
-            sb.AppendLine(about!.Trim());
-            sb.AppendLine();
-        }
-
-        sb.Append("Usage: {{EXECUTABLE_NAME}}");
-
-        if (commandModel is { IsSubCommand: true, Name: not null })
-            sb.Append($" {commandModel.Name}");
-
-        if (namedArguments.Any())
-            sb.Append(" [OPTIONS]");
-
-        foreach (var positional in positionalArgs)
-            sb.Append($" <{positional.Symbol.Name}>");
-        sb.AppendLine();
-
-        var table = new List<string?[]>();
-
-        if (positionalArgs.Length > 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine("Arguments:");
-            foreach (var positional in positionalArgs)
-                table.Add([$"<{positional.Symbol.Name}>", positional.Help]);
-
-            var maxArgLength = table.Max(o => o[0]?.Length ?? 0);
-            foreach (var row in table)
-                sb.AppendLine($"  {row[0]?.PadRight(maxArgLength)}  {row[1]}");
-
-            table.Clear();
-        }
-
-        foreach (var option in namedArguments)
-        {
-            var names = option switch
-            {
-                { Short: { } shortName, Long: { } longName } => $"-{shortName}, --{longName}",
-                { Short: { } shortName } => $"-{shortName}",
-                { Long: { } longName } => $"--{longName}",
-                _ => $"{option.Symbol.Name.ToSnakeCase()}"
-            };
-
-            table.Add([names, option.Help]);
-        }
-
-        table.Add(["-h, --help", "Shows this help message"]);
-
-        var maxColumnLength = table.Max(o => o[0]?.Length ?? 0);
-
-        sb.AppendLine();
-        sb.AppendLine("Options:");
-        foreach (var row in table)
-            sb.AppendLine($"  {row[0]?.PadRight(maxColumnLength)}  {row[1]}");
-        table.Clear();
-
-        if (subCommand is { Commands.Count: > 0 })
-        {
-            foreach (var command in subCommand.Commands)
-                table.Add([command.Name, command.About]);
-
-            maxColumnLength = table.Max(o => o[0]?.Length ?? 0);
-
-            sb.AppendLine();
-            sb.AppendLine("Commands:");
-            foreach (var row in table)
-                sb.AppendLine($"  {row[0]?.PadRight(maxColumnLength)}  {row[1]}");
-        }
-
-        return sb.ToString();
+            memberType == sc?.Symbol.ToDisplayString(CodeGeneratorConstants.FullNameDisplayFormat).TrimEnd('?'));
     }
 
     private static void WriteHelperMethods(IndentedTextWriter writer)
@@ -625,17 +588,51 @@ internal static class CommandCodeGenerator
                 System.Console.WriteLine(helpMessage);
             }
 
-            public static void PrintHelpMessage() 
+            public static void PrintHelpMessage()
             {
                 System.Console.WriteLine(GetFormattedHelpMessage());
             }
 
-            private static string GetFormattedHelpMessage() 
+            private static string GetFormattedHelpMessage()
             {
                 var executableName = System.IO.Path.GetFileNameWithoutExtension(System.Environment.GetCommandLineArgs()[0]);
                 if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
-                    executableName += "[.exe]";
+                    executableName += ".exe";
                 return HelpMessage.Replace("{{EXECUTABLE_NAME}}", executableName);
+            }
+
+            private delegate bool TryParseDelegate<T>(string input, out T result);
+
+            private static T TryParseOrThrow<T>(string input, TryParseDelegate<T> tryParse, string typeName)
+            {
+                if (tryParse(input, out var result))
+                    return result;
+
+                throw new System.FormatException($"Failed to parse '{input}' as {typeName}");
+            }
+
+            private static T TryParseWithCustomParser<T>(string input, System.Func<string, T> parser)
+            {
+                try
+                {
+                    return parser(input);
+                }
+                catch (System.Exception ex)
+                {
+                    throw new System.FormatException($"Custom parser failed to parse '{input}': {ex.Message}", ex);
+                }
+            }
+
+            private static object TryConvertOrThrow(string input, System.Type targetType, string typeName)
+            {
+                try
+                {
+                    return System.Convert.ChangeType(input, targetType);
+                }
+                catch (System.Exception ex)
+                {
+                    throw new System.FormatException($"Failed to convert '{input}' to {typeName}: {ex.Message}", ex);
+                }
             }
             """);
     }
@@ -646,7 +643,7 @@ internal static class CommandCodeGenerator
         {
             case IArrayTypeSymbol { ElementType: { } elementType }:
             {
-                WriteArraySetter(writer, argument.VariableName, elementType);
+                ArgumentConversionHelper.WriteArraySetter(writer, argument.VariableName, elementType, argument.ValueParser);
                 break;
             }
 
@@ -655,23 +652,46 @@ internal static class CommandCodeGenerator
                 var elementType = namedTypeSymbol.TypeArguments.First();
                 writer.WriteMultiLine(
                     $"""
+                     const int MaxListElements = 10000;
                      if (!{argument.VariableName}.HasValue)
                          {argument.VariableName} = new System.Collections.Generic.List<{elementType}>();
 
-                     {argument.VariableName}.Value.Add({GetArgConversion(elementType, "value")});
+                     if ({argument.VariableName}.Value.Count >= MaxListElements)
+                         throw new System.ArgumentException("List argument exceeds maximum of " + MaxListElements + " elements");
+
+                     {argument.VariableName}.Value.Add({ArgumentConversionHelper.GetArgConversion(elementType, "value", argument.ValueParser)});
                      index++;
                      """);
                 break;
             }
 
             default:
-                writer.WriteMultiLine(
-                    $"""
-                     var value = valueLiteral.Value;
-                     {argument.VariableName} = {GetArgConversion(argument.MemberType, "value")};
-                     index++;
-                     """);
+            {
+                var fullTypeName = argument.MemberType.ToDisplayString(CodeGeneratorConstants.FullNameDisplayFormat);
+                var conversion = ArgumentConversionHelper.GetArgConversion(argument.MemberType, "value", argument.ValueParser);
+
+                if (argument.ValidationAttributes.Length > 0)
+                {
+                    writer.WriteLine("var value = valueLiteral.Value;");
+                    writer.WriteLine($"var parsedValue = {conversion};");
+                    ValidationCodeGenerator.GenerateValidationCode(writer, argument, "parsedValue");
+                    writer.WriteMultiLine(
+                        $"""
+                         {argument.VariableName} = parsedValue;
+                         index++;
+                         """);
+                }
+                else
+                {
+                    writer.WriteMultiLine(
+                        $"""
+                         var value = valueLiteral.Value;
+                         {argument.VariableName} = {conversion};
+                         index++;
+                         """);
+                }
                 break;
+            }
         }
     }
 
@@ -695,7 +715,7 @@ internal static class CommandCodeGenerator
             return;
         }
 
-        writer.WriteLine("if (index > tokens.Length - 1 || tokens[index] is not Clap.Net.ValueLiteral(var value))");
+        writer.WriteLine("if (index >= tokens.Length || tokens[index] is not Clap.Net.ValueLiteral(var value))");
         writer.Indent++;
         writer.WriteLine(
             $"return new Clap.Net.Models.ParseError(\"Expected value to follow named arg '{symbolName}'\", GetFormattedHelpMessage());");
@@ -721,7 +741,7 @@ internal static class CommandCodeGenerator
 
             case { MemberType: IArrayTypeSymbol { ElementType: { } elementType } }:
             {
-                WriteArraySetter(writer, argument.VariableName, elementType);
+                ArgumentConversionHelper.WriteArraySetter(writer, argument.VariableName, elementType, argument.ValueParser);
                 break;
             }
 
@@ -730,95 +750,44 @@ internal static class CommandCodeGenerator
                 var elementType = namedTypeSymbol.TypeArguments.First();
                 writer.WriteMultiLine(
                     $"""
+                     const int MaxListElements = 10000;
                      if (!{argument.VariableName}.HasValue)
                          {argument.VariableName} = new System.Collections.Generic.List<{elementType}>();
-                     {argument.VariableName}.Value.Add({GetArgConversion(elementType, "value")});
+
+                     if ({argument.VariableName}.Value.Count >= MaxListElements)
+                         throw new System.ArgumentException("List argument exceeds maximum of " + MaxListElements + " elements");
+
+                     {argument.VariableName}.Value.Add({ArgumentConversionHelper.GetArgConversion(elementType, "value", argument.ValueParser)});
                      index++;
                      """);
                 break;
             }
 
             default:
-                writer.WriteMultiLine(
-                    $"""
-                     {argument.VariableName} = {GetArgConversion(argument.MemberType, "value")};
-                     index++;
-                     """);
+            {
+                var fullTypeName = argument.MemberType.ToDisplayString(CodeGeneratorConstants.FullNameDisplayFormat);
+                var conversion = ArgumentConversionHelper.GetArgConversion(argument.MemberType, "value", argument.ValueParser);
+
+                if (argument.ValidationAttributes.Length > 0)
+                {
+                    writer.WriteLine($"var parsedValue = {conversion};");
+                    ValidationCodeGenerator.GenerateValidationCode(writer, argument, "parsedValue");
+                    writer.WriteMultiLine(
+                        $"""
+                         {argument.VariableName} = parsedValue;
+                         index++;
+                         """);
+                }
+                else
+                {
+                    writer.WriteMultiLine(
+                        $"""
+                         {argument.VariableName} = {conversion};
+                         index++;
+                         """);
+                }
                 break;
+            }
         }
-    }
-
-    private static void WriteArraySetter(IndentedTextWriter writer, string variableName, ITypeSymbol elementType)
-    {
-        var childType = elementType.ToDisplayString(FullNameDisplayString);
-        writer.WriteMultiLine(
-            $$"""
-              var builder = System.Collections.Immutable.ImmutableArray.CreateBuilder<{{childType}}>();
-              while (index < tokens.Length && tokens[index] is Clap.Net.ValueLiteral(var @____value)) 
-              {
-                  builder.Add({{GetArgConversion(elementType, "@____value")}});
-                  index++;
-              }
-              {{variableName}} = builder.ToArray();
-              """);
-    }
-
-    private static string GetArgConversion(ITypeSymbol member, string variableName)
-    {
-        var nullable = member.NullableAnnotation is NullableAnnotation.Annotated;
-        var fullName = member.ToDisplayString(FullNameDisplayString);
-        return member.Name switch
-        {
-            "String" => variableName,
-            "Int32" => nullable
-                ? $"int.TryParse({variableName}, out var v) ? v : null"
-                : $"int.Parse({variableName})",
-            "Int64" => nullable
-                ? $"long.TryParse({variableName}, out var v) ? v : null"
-                : $"long.Parse({variableName})",
-            "Single" => nullable
-                ? $"float.TryParse({variableName}, out var v) ? v : null"
-                : $"float.Parse({variableName})",
-            "Double" => nullable
-                ? $"double.TryParse({variableName}, out var v) ? v : null"
-                : $"double.Parse({variableName})",
-            "Decimal" => nullable
-                ? $"decimal.TryParse({variableName}, out var v) ? v : null"
-                : $"decimal.Parse({variableName})",
-            "Boolean" => nullable
-                ? $"bool.TryParse({variableName}, out var v) ? v : null"
-                : $"bool.Parse({variableName})",
-            "Byte" => nullable
-                ? $"byte.TryParse({variableName}, out var v) ? v : null"
-                : $"byte.Parse({variableName})",
-            "SByte" => nullable
-                ? $"sbyte.TryParse({variableName}, out var v) ? v : null"
-                : $"sbyte.Parse({variableName})",
-            "Int16" => nullable
-                ? $"short.TryParse({variableName}, out var v) ? v : null"
-                : $"short.Parse({variableName})",
-            "UInt16" => nullable
-                ? $"ushort.TryParse({variableName}, out var v) ? v : null"
-                : $"ushort.Parse({variableName})",
-            "UInt32" => nullable
-                ? $"uint.TryParse({variableName}, out var v) ? v : null"
-                : $"uint.Parse({variableName})",
-            "UInt64" => nullable
-                ? $"ulong.TryParse({variableName}, out var v) ? v : null"
-                : $"ulong.Parse({variableName})",
-            "Char" => nullable
-                ? $"char.TryParse({variableName}, out var v) ? v : null"
-                : $"char.Parse({variableName})",
-            "DateTime" => nullable
-                ? $"DateTime.TryParse({variableName}, out var v) ? v : null"
-                : $"DateTime.Parse({variableName})",
-            "TimeSpan" => nullable
-                ? $"TimeSpan.TryParse({variableName}, out var v) ? v : null"
-                : $"TimeSpan.Parse({variableName})",
-            "Guid" => nullable
-                ? $"Guid.TryParse({variableName}, out var v) ? v : null"
-                : $"Guid.Parse({variableName})",
-            _ => $"({fullName})Convert.ChangeType({variableName}, typeof({fullName}))"
-        };
     }
 }
