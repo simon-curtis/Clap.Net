@@ -5,10 +5,19 @@
         <Nullable>enable</Nullable>
         <LangVersion>latest</LangVersion>
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+
+        <!-- Package Information -->
+        <PackageId>Clap.Net</PackageId>
+        <Version>0.2.0</Version>
+        <Authors>Simon Curtis</Authors>
+        <Description>A C# source generator for command-line argument parsing, inspired by clap-rs. Provides strongly-typed, attribute-based CLI definition with automatic help generation and subcommand support.</Description>
+        <PackageTags>cli;command-line;parser;source-generator;clap;arguments</PackageTags>
+        <PackageProjectUrl>https://github.com/simon-curtis/Clap.Net</PackageProjectUrl>
         <PackageReadmeFile>readme.md</PackageReadmeFile>
         <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
         <RepositoryUrl>https://github.com/simon-curtis/Clap.Net</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
+
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <NoWarn>$(NoWarn);1591</NoWarn>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
