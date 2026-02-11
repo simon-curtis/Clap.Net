@@ -3,7 +3,8 @@
     "allow": [
       "Bash(dotnet test:*)",
       "WebSearch",
-      "WebFetch(domain:opencli.org)"
+      "WebFetch(domain:opencli.org)",
+      "Bash(dotnet list:*)"
     ]
   }
 }

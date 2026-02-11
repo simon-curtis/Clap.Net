@@ -371,6 +371,62 @@ public class Tests
         result2.Error.Message.ShouldContain("Username can only contain letters, numbers, and underscores");
     }
 
+    [Fact]
+    public void ArrayArg_SingleInvocation_ShouldConsumeOnlyOneValue()
+    {
+        // DESIRED BEHAVIOR: When -t is specified once, it should only consume ONE value
+        // Command: myapp -t test1 test2 py js ts
+        var result = MultiValueWithPositionalApp.TryParse(["-t", "test1", "test2", "py", "js", "ts"]);
+
+        result.IsSuccess.ShouldBeTrue();
+
+        // Tests should only get the next value: ["test1"]
+        result.Command.Tests.ShouldNotBeNull();
+        result.Command.Tests.Length.ShouldBe(1);
+        result.Command.Tests.ShouldBe(new[] { "test1" });
+
+        // Extensions (positional) should get the rest: ["test2", "py", "js", "ts"]
+        result.Command.Extensions.Length.ShouldBe(4);
+        result.Command.Extensions.ShouldBe(new[] { "test2", "py", "js", "ts" });
+    }
+
+    [Fact]
+    public void ArrayArg_MultipleInvocations_ShouldAccumulateValues()
+    {
+        // DESIRED BEHAVIOR: When -t is specified multiple times, accumulate the values
+        // Command: myapp -t test1 -t test2 py js ts
+        var result = MultiValueWithPositionalApp.TryParse(["-t", "test1", "-t", "test2", "py", "js", "ts"]);
+
+        result.IsSuccess.ShouldBeTrue();
+
+        // Tests should get both values: ["test1", "test2"]
+        result.Command.Tests.ShouldNotBeNull();
+        result.Command.Tests.Length.ShouldBe(2);
+        result.Command.Tests.ShouldBe(new[] { "test1", "test2" });
+
+        // Extensions (positional) should get the rest: ["py", "js", "ts"]
+        result.Command.Extensions.Length.ShouldBe(3);
+        result.Command.Extensions.ShouldBe(new[] { "py", "js", "ts" });
+    }
+
+    [Fact]
+    public void AppendAction_WithPositional_WorksCorrectly()
+    {
+        // This test shows that Action.Append (with IEnumerable) works correctly
+        // because each -t flag only consumes the next single value
+        var result = AppendActionWithPositionalApp.TryParse(["-t", "test1", "-t", "test2", "py", "js", "ts"]);
+
+        result.IsSuccess.ShouldBeTrue();
+
+        // With Action.Append, you must specify the flag each time: -t test1 -t test2
+        result.Command.Tests.Count().ShouldBe(2);
+        result.Command.Tests.ShouldBe(new[] { "test1", "test2" });
+
+        // Positional arguments work correctly
+        result.Command.Extensions.Length.ShouldBe(3);
+        result.Command.Extensions.ShouldBe(new[] { "py", "js", "ts" });
+    }
+
     // Note: InvalidParserApp is intentionally commented out to avoid compile errors
     // Uncommenting it should produce diagnostic error CLAP001:
     // "Custom parser type 'InvalidParser' must have a static Parse(string) method"
@@ -642,4 +698,26 @@ public partial class MultipleValidationsApp
     [System.ComponentModel.DataAnnotations.StringLength(20, MinimumLength = 5)]
     [System.ComponentModel.DataAnnotations.RegularExpression(@"^[a-zA-Z0-9_]+$", ErrorMessage = "Username can only contain letters, numbers, and underscores")]
     public required string Username { get; init; }
+}
+
+// Test for issue1.md: Multi-value arg followed by positional arguments
+[Command]
+public partial class MultiValueWithPositionalApp
+{
+    [Arg(Short = 't')]
+    public string[]? Tests { get; init; }
+
+    // Positional argument (array)
+    public string[] Extensions { get; init; } = ["jz", "ps1", "py"];
+}
+
+// Test for Action.Append with positional arguments (should work correctly)
+[Command]
+public partial class AppendActionWithPositionalApp
+{
+    [Arg(Short = 't', Action = ArgAction.Append)]
+    public IEnumerable<string> Tests { get; init; } = [];
+
+    // Positional argument (array)
+    public string[] Extensions { get; init; } = ["jz", "ps1", "py"];
 }
