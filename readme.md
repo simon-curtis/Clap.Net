@@ -223,6 +223,108 @@ var cmd = result.AsT0;
 // Use validated command...
 ```
 
+## Multi-Value Arguments
+
+Clap.Net provides flexible ways to accept multiple values for a single argument, with different behaviors depending on how you define your properties.
+
+### Array Arguments (Per-Flag Values)
+
+For **named arguments** with array types (`string[]`, `int[]`, etc.), each flag invocation captures **one value**. To collect multiple values, repeat the flag:
+
+```csharp
+[Command]
+public partial class BenchmarkCommand
+{
+    [Arg(Short = 't', Long = "test", Help = "Tests to run")]
+    public string[]? Tests { get; init; }
+
+    // Positional array consumes all remaining positional values
+    public string[] Extensions { get; init; } = ["js", "ts"];
+}
+```
+
+**Usage:**
+```bash
+# Single value - Tests gets ["unit"], Extensions gets ["py", "go"]
+$ app -t unit py go
+
+# Multiple values - repeat the flag for each value
+$ app -t unit -t integration py go
+# Tests gets ["unit", "integration"], Extensions gets ["py", "go"]
+
+# Without -t, all values go to positional
+$ app py go js
+# Tests is null/empty, Extensions gets ["py", "go", "js"]
+```
+
+**Key behavior:**
+- Named array arguments: **One value per flag invocation**
+- Positional array arguments: **Greedy - consumes all remaining positional values**
+- This prevents named arrays from "stealing" values intended for positional arguments
+
+### Action.Append (Alternative Pattern)
+
+For collection types with `Action.Append`, the behavior is similar but uses `IEnumerable<T>`:
+
+```csharp
+[Command]
+public partial class TagCommand
+{
+    [Arg(Short = 't', Long = "tag", Action = ArgAction.Append)]
+    public IEnumerable<string> Tags { get; init; } = [];
+}
+```
+
+**Usage:**
+```bash
+$ app -t "v1.0" -t "release" -t "stable"
+# Tags gets ["v1.0", "release", "stable"]
+```
+
+### When to Use Each
+
+| Pattern | Type | Behavior | Use Case |
+|---------|------|----------|----------|
+| **Array** | `string[]` | One value per flag | Named args that need to work with positional args |
+| **Action.Append** | `IEnumerable<T>` | One value per flag | Named args only, more explicit about appending |
+| **Positional Array** | `string[]` | Greedy (all remaining) | Variadic trailing arguments (like `files...`) |
+
+### Examples
+
+**File processor with filters and files:**
+```csharp
+[Command]
+public partial class ProcessFiles
+{
+    [Arg(Short = 'e', Long = "exclude")]
+    public string[] ExcludePatterns { get; init; } = [];
+
+    public string[] Files { get; init; } = [];  // Positional
+}
+
+// Usage:
+$ app -e "*.tmp" -e "*.log" file1.txt file2.txt file3.txt
+// ExcludePatterns: ["*.tmp", "*.log"]
+// Files: ["file1.txt", "file2.txt", "file3.txt"]
+```
+
+**Test runner with specific tests and extensions:**
+```csharp
+[Command]
+public partial class TestRunner
+{
+    [Arg(Short = 't')]
+    public string[]? Tests { get; init; }
+
+    public string[] Extensions { get; init; } = ["js", "ts", "py"];
+}
+
+// Usage:
+$ app -t unit -t integration go rb
+// Tests: ["unit", "integration"]
+// Extensions: ["go", "rb"]
+```
+
 ## Key Features
 
 **Strongly-Typed Parsing**

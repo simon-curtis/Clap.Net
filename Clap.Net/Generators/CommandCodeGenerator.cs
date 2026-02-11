@@ -643,7 +643,7 @@ internal static class CommandCodeGenerator
         {
             case IArrayTypeSymbol { ElementType: { } elementType }:
             {
-                ArgumentConversionHelper.WriteArraySetter(writer, argument.VariableName, elementType, argument.ValueParser);
+                ArgumentConversionHelper.WriteArraySetter(writer, argument.VariableName, elementType, argument.ValueParser, isNamed: false);
                 break;
             }
 
@@ -741,7 +741,7 @@ internal static class CommandCodeGenerator
 
             case { MemberType: IArrayTypeSymbol { ElementType: { } elementType } }:
             {
-                ArgumentConversionHelper.WriteArraySetter(writer, argument.VariableName, elementType, argument.ValueParser);
+                ArgumentConversionHelper.WriteArraySetter(writer, argument.VariableName, elementType, argument.ValueParser, isNamed: true);
                 break;
             }
 

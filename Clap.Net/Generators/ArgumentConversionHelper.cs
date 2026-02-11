@@ -10,24 +10,49 @@ internal static class ArgumentConversionHelper
         IndentedTextWriter writer,
         string variableName,
         ITypeSymbol elementType,
-        ITypeSymbol? valueParser = null)
+        ITypeSymbol? valueParser = null,
+        bool isNamed = false)
     {
         var childType = elementType.ToDisplayString(CodeGeneratorConstants.FullNameDisplayFormat);
-        writer.WriteMultiLine(
-            $$"""
-              const int MaxArrayElements = 10000; // Prevent DoS from excessive array arguments
-              var builder = System.Collections.Immutable.ImmutableArray.CreateBuilder<{{childType}}>();
-              var arrayElementCount = 0;
-              while (index < tokens.Length && tokens[index] is Clap.Net.ValueLiteral(var @__clapgen_arrayValue))
-              {
-                  if (++arrayElementCount > MaxArrayElements)
-                      throw new System.ArgumentException($"Array argument exceeds maximum of {MaxArrayElements} elements");
 
-                  builder.Add({{GetArgConversion(elementType, "@__clapgen_arrayValue", valueParser)}});
+        if (isNamed)
+        {
+            // For named arguments: consume only ONE value per flag invocation
+            // This allows accumulating multiple values via repeated flags: -t val1 -t val2
+            writer.WriteMultiLine(
+                $$"""
+                  const int MaxArrayElements = 10000;
+                  var currentArray = ({{variableName}}.HasValue ? {{variableName}}.Value : null) ?? System.Array.Empty<{{childType}}>();
+
+                  if (currentArray.Length >= MaxArrayElements)
+                      throw new System.ArgumentException("Array argument exceeds maximum of " + MaxArrayElements + " elements");
+
+                  var newArray = new {{childType}}[currentArray.Length + 1];
+                  currentArray.CopyTo(newArray, 0);
+                  newArray[currentArray.Length] = {{GetArgConversion(elementType, "value", valueParser)}};
+                  {{variableName}} = newArray;
                   index++;
-              }
-              {{variableName}} = builder.ToArray();
-              """);
+                  """);
+        }
+        else
+        {
+            // For positional arguments: consume all remaining positional values (greedy)
+            writer.WriteMultiLine(
+                $$"""
+                  const int MaxArrayElements = 10000; // Prevent DoS from excessive array arguments
+                  var builder = System.Collections.Immutable.ImmutableArray.CreateBuilder<{{childType}}>();
+                  var arrayElementCount = 0;
+                  while (index < tokens.Length && tokens[index] is Clap.Net.ValueLiteral(var @__clapgen_arrayValue))
+                  {
+                      if (++arrayElementCount > MaxArrayElements)
+                          throw new System.ArgumentException($"Array argument exceeds maximum of {MaxArrayElements} elements");
+
+                      builder.Add({{GetArgConversion(elementType, "@__clapgen_arrayValue", valueParser)}});
+                      index++;
+                  }
+                  {{variableName}} = builder.ToArray();
+                  """);
+        }
     }
 
     public static string GetArgConversion(ITypeSymbol member, string variableName, ITypeSymbol? valueParser = null)
