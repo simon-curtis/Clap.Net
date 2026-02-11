@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Xml.Linq;
 using Clap.Net.Extensions;
@@ -82,6 +83,12 @@ public static class CommandModelParser
             var variableName = GetVariableName(member.Name.ToCamelCase());
             var commentXml = ExtractSummary(member.GetDocumentationCommentXml());
 
+            // Extract ValidationAttributes for properties without [Arg] attribute
+            var validationAttributes = member.GetAttributes()
+                .Where(attr => attr.AttributeClass is not null &&
+                       IsValidationAttribute(attr.AttributeClass))
+                .ToImmutableArray();
+
             if (!attributes.TryGetValue(nameof(ArgAttribute), out var argAttribute))
             {
                 // Get the comment from the arg
@@ -93,7 +100,9 @@ public static class CommandModelParser
                         defaultValue,
                         commentXml,
                         isRequired,
-                        positionalIndex++));
+                        positionalIndex++,
+                        ValueParser: null,
+                        ValidationAttributes: validationAttributes));
                 continue;
             }
 
@@ -110,6 +119,14 @@ public static class CommandModelParser
 
             var helpText = argNamedArguments.GetOrDefault(nameof(ArgAttribute.Help)) as string ?? commentXml;
 
+            // Extract ValueParser type if specified
+            ITypeSymbol? valueParserType = null;
+            if (argNamedArguments.TryGetValue(nameof(ArgAttribute.ValueParser), out var valueParserValue)
+                && valueParserValue is INamedTypeSymbol parserSymbol)
+            {
+                valueParserType = parserSymbol;
+            }
+
             ArgumentModel argument = @short is not null || @long is not null
                 ? new NamedArgumentModel(
                     member,
@@ -122,9 +139,12 @@ public static class CommandModelParser
                     Env: argNamedArguments.GetOrDefault(nameof(ArgAttribute.Env)) as string,
                     Negation: argNamedArguments.GetOrDefault(nameof(ArgAttribute.Negation)) as bool?,
                     argAction,
-                    isRequired)
+                    isRequired,
+                    ValueParser: valueParserType,
+                    ValidationAttributes: validationAttributes)
                 : new PositionalArgumentModel(
-                    member, memberType, variableName, defaultValue, helpText, isRequired, positionalIndex++);
+                    member, memberType, variableName, defaultValue, helpText, isRequired, positionalIndex++, valueParserType,
+                    ValidationAttributes: validationAttributes);
 
             arguments.Add(argument);
         }
@@ -155,14 +175,14 @@ public static class CommandModelParser
 
     private static string GetVariableName(string name) => name switch
     {
-        "params" => "@___params",
-        "base" => "@___base",
-        "this" => "@___this",
-        "default" => "@___default",
-        "event" => "@___event",
-        "field" => "@___field",
-        "var" => "@___var",
-        _ => $"@___{name}"
+        "params" => "@__clapgen_params",
+        "base" => "@__clapgen_base",
+        "this" => "@__clapgen_this",
+        "default" => "@__clapgen_default",
+        "event" => "@__clapgen_event",
+        "field" => "@__clapgen_field",
+        "var" => "@__clapgen_var",
+        _ => $"@__clapgen_{name}"
     };
 
 
@@ -206,9 +226,17 @@ public static class CommandModelParser
     {
         if (string.IsNullOrWhiteSpace(xmlDocs))
             return null;
-        
-        var doc = XDocument.Parse(xmlDocs);
-        return doc.Root?.Element("summary")?.Value.Trim();
+
+        try
+        {
+            var doc = XDocument.Parse(xmlDocs);
+            return doc.Root?.Element("summary")?.Value.Trim();
+        }
+        catch (System.Xml.XmlException)
+        {
+            // Malformed XML in documentation comments - skip documentation gracefully
+            return null;
+        }
     }
 
     // private static (string About, string? LongAbout)? ExtractSummary(ReadOnlySpan<char> source)
@@ -272,5 +300,20 @@ public static class CommandModelParser
         }
 
         return span.Slice(0, spanIndex).ToString();
+    }
+
+    private static bool IsValidationAttribute(INamedTypeSymbol typeSymbol)
+    {
+        // Check if this type or any of its base types is ValidationAttribute
+        var current = typeSymbol;
+        while (current is not null)
+        {
+            if (current.ToString() == "System.ComponentModel.DataAnnotations.ValidationAttribute")
+                return true;
+
+            current = current.BaseType;
+        }
+
+        return false;
     }
 }

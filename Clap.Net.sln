@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Clap.TestConsole", "Clap.Te
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Clap.Net.Tests", "Clap.Net.Tests\Clap.Net.Tests.csproj", "{FD1932FB-9F1D-434A-853B-DC5DA62952F1}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Clap.Net.Tool", "Clap.Net.Tool\Clap.Net.Tool.csproj", "{2529900F-1DAB-4C86-95AD-179CED450D7E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -30,5 +32,9 @@ Global
 		{FD1932FB-9F1D-434A-853B-DC5DA62952F1}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FD1932FB-9F1D-434A-853B-DC5DA62952F1}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FD1932FB-9F1D-434A-853B-DC5DA62952F1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2529900F-1DAB-4C86-95AD-179CED450D7E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2529900F-1DAB-4C86-95AD-179CED450D7E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2529900F-1DAB-4C86-95AD-179CED450D7E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2529900F-1DAB-4C86-95AD-179CED450D7E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

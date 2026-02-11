@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet test:*)",
+      "WebSearch",
+      "WebFetch(domain:opencli.org)"
+    ]
+  }
+}

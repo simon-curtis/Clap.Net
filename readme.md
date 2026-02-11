@@ -1,17 +1,251 @@
 # Clap.Net
 
-Clap.Net is an attempt to port clap-rs over to .NET, with almost feature-parity, to make source generated parsers for applications.
+**A modern, type-safe command-line argument parser for .NET using source generation.**
 
-## Installation
+Clap.Net brings the power and elegance of Rust's [clap](https://github.com/clap-rs/clap) library to the .NET ecosystem. Define your CLI with attributes and properties, and let the source generator handle the rest—no reflection, no runtime overhead, just clean, fast, generated code.
+
+## Why Clap.Net?
+
+**Zero Runtime Overhead**
+Source generators produce parsing code at compile time. No reflection, no performance penalties—just pure, optimized C# code.
+
+**Type Safety First**
+Your command-line interface is defined using strongly-typed classes and properties. Catch errors at compile time, not runtime.
+
+**Batteries Included**
+Automatic help generation, version handling, environment variable fallback, subcommands, and rich argument types—all out of the box.
+
+**Developer Friendly**
+Leverage C# language features like `required` properties, nullable types, and pattern matching. Your CLI definition is just normal C# code with a few attributes.
+
+## Quick Start
+
+### Installation
 
 ```bash
 dotnet add package Clap.Net
 ```
 
-## Notes to the user
+### Basic Example
 
-If you are having issues with generation and want to see what's going on, sometimes it's not enough to rely on the
-in-editor generated file, add this to your project to see the MSBuild-generated files.
+Define a command with a simple attribute:
+
+```csharp
+using Clap.Net;
+
+[Command(Name = "greet", About = "A friendly greeter", Version = "1.0.0")]
+public partial class GreetCommand
+{
+    [Arg(Short = 'n', Long = "name", Help = "The name to greet")]
+    public string Name { get; init; } = "World";
+
+    [Arg(Short = 'v', Long = "verbose")]
+    public bool Verbose { get; init; }
+
+    public required string Message { get; init; }
+}
+```
+
+Parse and use it:
+
+```csharp
+var cmd = GreetCommand.Parse(args);
+Console.WriteLine($"{cmd.Message}, {cmd.Name}!");
+if (cmd.Verbose)
+    Console.WriteLine("Verbose mode enabled.");
+```
+
+```bash
+$ dotnet run -- "Hello" --name "Alice" -v
+Hello, Alice!
+Verbose mode enabled.
+
+$ dotnet run -- --help
+# Displays auto-generated help text
+```
+
+## Complete Example with Subcommands
+
+Clap.Net makes complex CLIs easy to build and maintain:
+
+```csharp
+using Clap.Net;
+
+namespace Clap.Examples;
+
+[Command(Name = "image-converter", About = "Convert and manage images")]
+public partial class ImageConverter
+{
+    [Arg(Help = "The path of the image to convert")]
+    public required string Path { get; init; }
+
+    [Arg(Help = "The destination path (default: <file-name>.[new-ext])", Last = true)]
+    public string? DestinationPath { get; init; }
+
+    [Arg(Short = 'e', Long = "extension", Help = "Target image format")]
+    public string? Extension { get; init; }
+
+    [Arg(Short = 'v', Long = "verbose", Help = "Enable verbose output")]
+    public bool Verbose { get; set; }
+
+    [Command]
+    public ImageConverterCommands? Command { get; init; }
+}
+
+[SubCommand]
+public partial class ImageConverterCommands
+{
+    [Command(About = "Show conversion history")]
+    public partial class History : ImageConverterCommands;
+
+    [Command(About = "Publish converted images")]
+    public partial class Publish : ImageConverterCommands
+    {
+        [Arg(Help = "The URL to publish the image to")]
+        public required string[] UploadUrl { get; init; }
+    }
+}
+```
+
+**Using the parser:**
+
+```csharp
+var app = ImageConverter.Parse(args);
+
+switch (app.Command)
+{
+    case ImageConverterCommands.History:
+        Console.WriteLine("Showing conversion history...");
+        break;
+
+    case ImageConverterCommands.Publish publish:
+        Console.WriteLine($"Publishing to {string.Join(", ", publish.UploadUrl)}");
+        break;
+
+    default:
+        Console.WriteLine($"Converting {app.Path} to {app.Extension ?? "default format"}");
+        break;
+}
+```
+
+**Command-line usage:**
+
+```bash
+# Basic conversion
+$ dotnet run -- -v "~/Downloads/tree.png" "~/Downloads/tree.jpg"
+
+# With subcommand
+$ dotnet run -- "~/Downloads/tree.png" -e "jpg" publish "https://yourdomain.com/upload"
+
+# Get help for subcommands
+$ dotnet run -- publish --help
+```
+
+## Argument Validation
+
+Clap.Net supports the full `System.ComponentModel.DataAnnotations` validation framework, allowing you to validate argument values at parse time with clear error messages.
+
+### Built-in Validators
+
+Use standard .NET validation attributes to enforce constraints:
+
+```csharp
+using System.ComponentModel.DataAnnotations;
+
+[Command(Name = "server", About = "Start a web server")]
+public partial class ServerCommand
+{
+    [Arg(Long = "port")]
+    [Range(1, 65535, ErrorMessage = "Port must be between 1 and 65535")]
+    public required int Port { get; init; }
+
+    [Arg(Long = "host")]
+    [RegularExpression(@"^[a-zA-Z0-9.-]+$", ErrorMessage = "Invalid hostname")]
+    public string Host { get; init; } = "localhost";
+
+    [Arg(Long = "email")]
+    [EmailAddress(ErrorMessage = "Invalid email address")]
+    public required string Email { get; init; }
+
+    [Arg(Long = "username")]
+    [StringLength(20, MinimumLength = 5)]
+    [RegularExpression(@"^[a-zA-Z0-9_]+$", ErrorMessage = "Only letters, numbers, and underscores allowed")]
+    public required string Username { get; init; }
+}
+```
+
+**Available validators:**
+- `[Range(min, max)]` - Numeric range validation
+- `[StringLength(max, MinimumLength = min)]` - String length constraints
+- `[RegularExpression("pattern")]` - Regex pattern matching
+- `[EmailAddress]`, `[Phone]`, `[Url]`, `[CreditCard]` - Format validators
+- Multiple validators can be combined on a single property
+
+### Custom Validators
+
+Create your own validators by inheriting from `ValidationAttribute`:
+
+```csharp
+public class PortRangeAttribute : ValidationAttribute
+{
+    public override bool IsValid(object? value)
+    {
+        if (value is int port)
+            return port >= 1 && port <= 65535;
+        return false;
+    }
+}
+
+[Command]
+public partial class MyApp
+{
+    [Arg(Long = "port")]
+    [PortRange(ErrorMessage = "Invalid port number")]
+    public required int Port { get; init; }
+}
+```
+
+### Handling Validation Errors
+
+Validation failures return a `ParseError` with detailed messages:
+
+```csharp
+var result = ServerCommand.TryParse(args);
+
+if (result.IsT3) // ParseError
+{
+    Console.Error.WriteLine(result.AsT3.Message);
+    // Output: "Validation failed for 'Port': Port must be between 1 and 65535"
+    return 1;
+}
+
+var cmd = result.AsT0;
+// Use validated command...
+```
+
+## Key Features
+
+**Strongly-Typed Parsing**
+Define your CLI interface using classes, properties, and attributes. Get compile-time safety and IntelliSense support.
+
+**Powerful Subcommands**
+Create complex command hierarchies using nested classes. Each subcommand can have its own arguments and options.
+
+**Rich Argument Types**
+Support for strings, numbers, bools, enums, arrays, and any type with `TryParse`. Custom parsing logic is straightforward.
+
+**Automatic Help Generation**
+Help text is generated from your attributes and XML documentation comments. Use `--help` on any command or subcommand.
+
+**Environment Variable Fallback**
+Options can fallback to environment variables when not provided on the command line.
+
+**Negatable Flags**
+Boolean flags can be negated with `--no-*` syntax for flexible configuration.
+
+## Debugging Generated Code
+
+If you're troubleshooting source generation issues or want to inspect the generated parser code, add this to your `.csproj`:
 
 ```xml
 <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
@@ -20,125 +254,57 @@ in-editor generated file, add this to your project to see the MSBuild-generated 
 </PropertyGroup>
 ```
 
+Generated files will be written to `bin/Generated/`, allowing you to step through the parser logic and understand how arguments are processed.
 
-## Usage
+## Feature Roadmap
 
-Define your command-line interface using classes and properties. Use attributes to specify the command-line options and arguments.
+Clap.Net aims for near feature-parity with clap-rs. Here's what's implemented and what's coming:
 
-```csharp
-using Clap.Net;
+### Implemented
 
-namespace Clap.Examples;
+- **Commands**
+  - Root command definition with Name, About, and Version
+  - Subcommands with nested class hierarchies
+  - Automatic help text for all commands
 
-[Command(Name = "image-converter", Summary = "My app is pretty cool!")]
-public partial class ImageConverter
-{
-    [Arg(Description = "The path of the image to convert")]
-    public required string Path { get; init; }
+- **Arguments & Options**
+  - Short (`-v`) and long (`--verbose`) flags
+  - Positional arguments with order-based mapping
+  - Required vs optional arguments
+  - Environment variable fallback
+  - Default values via C# property initializers
+  - Multiple values (arrays and collections)
+  - TryParse support for custom types
+  - Custom parser functions via `ValueParser` attribute
+  - Argument actions (Set, Append, Count)
+  - Full `ValidationAttribute` support (Range, StringLength, RegularExpression, EmailAddress, custom validators)
 
-    [Arg(Description = "The destination path of the converted image (default: <file-name>.[new-ext])", Last = true)]
-    public string? DestinationPath { get; init; }
+- **Flags**
+  - Boolean flags (presence/absence)
+  - Negatable flags (`--no-debug`)
 
-    [Arg(ShortName = 'e', LongName = "extension")]
-    public string? Extension { get; init; }
+- **Help & Version**
+  - Automatic `--help` generation
+  - Automatic `--version` handling
+  - Custom help text from XML docs
 
-    [Arg(ShortName = 'v', LongName= "verbose")]
-    public bool Verbose { get; set; }
+### Coming Soon
 
-    [Command]
-    public ImageConverterCommands? Command { get; init; }
-}
-
-[SubCommand]
-public partial class ImageConverterCommands 
-{
-    [Command]
-    public partial class History : ImageConverterCommands;
-
-    [Command]
-    public partial class Publish : ImageConverterCommands 
-    {
-        [Arg(Description = "The url to publish the new image to")]
-        public required string[] UploadUrl { get; init; }
-    }
-}
-```
-
-Parse the command-line arguments using the `Parser` class.
-
-```csharp
-using System;
-using Clap.Examples;
-
-var app = ImageConverter.Parse(args);
-
-switch (app.Command) 
-{
-    case ImageConverterCommands.History history:
-        // do something with history
-        break;
-
-    case ImageConverterCommands.Publish publish:
-        // do something with publish
-        break;
-
-    default:
-        // do something with app
-        break;
-}
-
-```
-
-Run the application with command-line arguments.
-
-```bash
-dotnet run -- -v "~/Downloads/tree.png" "~/Downloads/tree.jpg" 
-dotnet run -- "~/Downloads/tree.png" -e "jpg" publish "https://yourdomain.com/upload"
-```
-
-## Features
-
-*   **Strongly-typed:** Define your command-line interface using classes and properties.
-*   **Subcommands:** Define subcommands using nested classes.
-*   **Options and Arguments:** Define options and arguments using attributes.
-*   **Automatic help generation:** Generate help messages automatically.
-
-## Core Feature Parity
-
-- [x] [Command] support
-    - [x] Define the root command type
-    - [x] Support for Name, Description, Version
-- [x] [Subcommand] support
-    - [x] Nesting subcommands as classes
-    - [x] Subcommand help messages
-- [ ] [Option] (named arguments)
-    - [x] Short and long flags (e.g., -v, --verbose)
-    - [x] Aliases for options
-    - [x] Environment variable fallback
-    - [x] Default values (handled by language)
-    - [x] Required vs optional
-    - [ ] Action (Set, Append, Count, etc.)
-- [ ] [Switch] (bool flags)
-    - [x] Basic presence/absence flag
-    - [x] Default to false unless specified
-    - [ ] Negatable flags (--no-flag)
-- [ ] [Positional] arguments
-    - [x] Order-based argument mapping
-    - [x] Optional vs Required
-    - [x] Default values (handled by language)
-    - [x] Multiple values (e.g., list)
-    - [ ] Custom parsers
-    - [ ] TryParse support for complex types
-    - [ ] Validation attributes
-- [ ] Help and version handling
-    - [x] Automatic --help
-    - [x] Automatic --version
-    - [ ] Custom help text
+- Argument value suggestions and completion
+- More flexible argument ordering
+- Improved error messages
 
 ## Contributing
 
-There is still loads to do, pull-requests are welcome
+Clap.Net is actively developed and there's plenty of work to do! Pull requests are welcome for:
+
+- Bug fixes and performance improvements
+- New features from the roadmap
+- Documentation and examples
+- Test coverage
+
+Check out the [CLAUDE.md](./CLAUDE.md) file for architectural guidance and development patterns.
 
 ## License
 
-MIT
+MIT License - see [LICENSE](./LICENSE) for details

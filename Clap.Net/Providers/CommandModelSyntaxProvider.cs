@@ -18,6 +18,6 @@ internal static class CommandModelSyntaxProvider
                     var symbol = (INamedTypeSymbol)ctx.TargetSymbol;
                     return CommandModelParser.GetCommandModel(symbol, decl);
                 })
-            .Where(symbol => symbol != null);
+            .Where(symbol => symbol is not null);
     }
 }

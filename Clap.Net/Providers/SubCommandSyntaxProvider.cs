@@ -35,6 +35,6 @@ internal static class SubCommandSyntaxProvider
 
                     return new SubCommandModel(symbol, commands);
                 })
-            .Where(symbol => symbol != null);
+            .Where(symbol => symbol is not null);
     }
 }

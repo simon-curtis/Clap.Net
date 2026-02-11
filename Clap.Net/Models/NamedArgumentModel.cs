@@ -13,5 +13,7 @@ internal record NamedArgumentModel(
     string? Env,
     bool? Negation,
     ArgAction Action,
-    bool Required
+    bool Required,
+    ITypeSymbol? ValueParser = null,
+    System.Collections.Immutable.ImmutableArray<AttributeData> ValidationAttributes = default
 ) : ArgumentModel(Symbol, MemberType, VariableName, Required, DefaultValue);
