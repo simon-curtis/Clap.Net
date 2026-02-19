@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Clap.Net.Tests/Clap.Net.Tests.csproj" />
+  <Project Path="Clap.Net.Tool/Clap.Net.Tool.csproj" />
+  <Project Path="Clap.Net/Clap.Net.csproj" />
+  <Project Path="Clap.TestConsole/Clap.TestConsole.csproj" />
+</Solution>

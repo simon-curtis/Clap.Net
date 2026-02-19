@@ -221,6 +221,15 @@ public class Tests
     }
 
     [Fact]
+    public void SubCommand_MissingRequiredArgs_ReturnsParseError()
+    {
+        // child_command requires -p flag; omitting it should propagate as ParseError, not throw
+        var result = ParentApp.TryParse([ParentCommand.ChildCommand.Name]);
+        result.IsError.ShouldBeTrue("Expected ParseError when subcommand is missing required args");
+        result.Error.Message.ShouldContain("required", Case.Sensitive);
+    }
+
+    [Fact]
     public void ComplexTypes_ParseCorrectly()
     {
         var testDate = "2025-01-15";

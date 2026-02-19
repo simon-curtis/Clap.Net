@@ -10,7 +10,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>clap</ToolCommandName>
     <PackageId>Clap.Net.Tool</PackageId>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <Authors>Simon Curtis</Authors>
     <Description>CLI tool for generating shell completion scripts (Bash, Zsh, Fish, PowerShell) and OpenCLI JSON schemas from Clap.Net command definitions</Description>
     <PackageTags>cli;shell;completion;bash;zsh;fish;powershell;opencli</PackageTags>

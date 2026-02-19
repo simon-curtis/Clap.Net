@@ -39,15 +39,7 @@ internal static class SubCommandCodeGenerator
             "Resolve",
             ["System.ReadOnlySpan<Clap.Net.IToken> tokens"]);
 
-        writer.WriteMultiLine(
-            $$"""
-              // {{commands.Count}} commands to parse
-              return tokens[0] switch 
-              {
-              """);
-
-        writer.Indent += 1;
-
+        // Generate a local function per subcommand to handle error propagation
         foreach (var command in commands)
         {
             var name = command.Symbol.GetAttributes()
@@ -58,13 +50,21 @@ internal static class SubCommandCodeGenerator
                        ?? command.Symbol.Name.ToSnakeCase();
 
             var commandFullName = command.Symbol.ToDisplayString(CodeGeneratorConstants.FullNameDisplayFormat);
-            writer.WriteLine(
-                $"Clap.Net.ValueLiteral(\"{name}\") => {commandFullName}.TryParse(tokens[1..]).ChangeType<{fullName}>(),");
+
+            writer.WriteMultiLine(
+                $$"""
+                  if (tokens[0] is Clap.Net.ValueLiteral("{{name}}"))
+                  {
+                      var __subResult = {{commandFullName}}.TryParse(tokens[1..]);
+                      if (__subResult.IsError) return __subResult.Error;
+                      if (__subResult.IsHelp) return __subResult.Help;
+                      if (__subResult.IsVersion) return __subResult.Version;
+                      return __subResult.Command!;
+                  }
+                  """);
+            writer.WriteLine();
         }
 
-        writer.WriteLine("_ => throw new Exception(\"Unknown command\")");
-
-        writer.Indent--;
-        writer.WriteLine("};");
+        writer.WriteLine("throw new Exception(\"Unknown command\");");
     }
 }
