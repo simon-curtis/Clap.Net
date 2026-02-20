@@ -161,11 +161,11 @@ internal static class CommandCodeGenerator
                       System.Environment.Exit(0);
                   }
 
-                  // IsHelp
-                  PrintHelpMessage();
+                  PrintHelpMessage(parseResult.Help.HelpMessage);
                   System.Environment.Exit(0);
 
-                  return default!; // Just to shut the compiler up
+                  // Unreachable: all control paths above call Environment.Exit(0)
+                  return default!;
               }
               """);
     }
@@ -206,7 +206,7 @@ internal static class CommandCodeGenerator
             ["System.ReadOnlySpan<Clap.Net.IToken> tokens"]);
 
         using (method.If("tokens.Length > 0 && tokens[0] is Clap.Net.ShortFlag('h') or Clap.Net.LongFlag(\"help\")"))
-            writer.WriteLine("return new Clap.Net.Models.ShowHelp();");
+            writer.WriteLine("return new Clap.Net.Models.ShowHelp(GetFormattedHelpMessage());");
 
         writer.WriteLine();
 
@@ -588,9 +588,9 @@ internal static class CommandCodeGenerator
                 System.Console.WriteLine(helpMessage);
             }
 
-            public static void PrintHelpMessage()
+            public static void PrintHelpMessage(string helpMessage)
             {
-                System.Console.WriteLine(GetFormattedHelpMessage());
+                System.Console.WriteLine(helpMessage);
             }
 
             private static string GetFormattedHelpMessage()

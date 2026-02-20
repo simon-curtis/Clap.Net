@@ -39,7 +39,7 @@ internal static class SubCommandCodeGenerator
             "Resolve",
             ["System.ReadOnlySpan<Clap.Net.IToken> tokens"]);
 
-        // Generate a local function per subcommand to handle error propagation
+        // Generate a local function per subcommand to handle help, version, and error propagation
         foreach (var command in commands)
         {
             var name = command.Symbol.GetAttributes()
